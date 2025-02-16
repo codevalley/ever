@@ -183,14 +183,22 @@ lib/
    - [x] Create user model with domain mapping
    - [x] Implement REST data source with Isar storage
    - [x] Implement repository with proper domain separation
-   - [ ] Update use cases to work with domain objects
-      - [ ] RegisterUseCase
-      - [ ] ObtainTokenUseCase
-      - [ ] RefreshTokenUseCase
-      - [ ] GetCurrentUserUseCase
-      - [ ] SignOutUseCase
-   - [ ] Add comprehensive error handling
-   - [ ] Add unit tests for all components
+   - [x] Update use cases to work with domain objects
+      - [x] RegisterUseCase (with input validation)
+      - [x] ObtainTokenUseCase (with token management)
+      - [x] RefreshTokenUseCase (with auto-refresh)
+      - [x] GetCurrentUserUseCase (with proper error handling)
+      - [x] SignOutUseCase (with edge case handling)
+   - [x] Add comprehensive error handling
+   - [ ] Add unit tests for components:
+      - [ ] User entity tests
+      - [ ] Repository tests
+      - [ ] Use case tests:
+         - [ ] RegisterUseCase
+         - [ ] ObtainTokenUseCase
+         - [ ] RefreshTokenUseCase
+         - [ ] GetCurrentUserUseCase
+         - [ ] SignOutUseCase
 
 2. **Note Implementation**
    - [ ] Create note-specific events
