@@ -1,32 +1,59 @@
 import '../entities/user.dart';
 import 'events.dart';
 
-/// Event when user successfully logs in
-class UserLoggedIn extends DomainEvent {
+/// Event when user successfully registers
+class UserRegistered extends DomainEvent {
   final User user;
-  UserLoggedIn(this.user);
+  final String userSecret;
+  UserRegistered(this.user, this.userSecret);
+}
+
+/// Event when user registration fails
+class RegistrationFailed extends DomainEvent {
+  final String message;
+  RegistrationFailed(this.message);
+}
+
+/// Event when token is obtained
+class TokenObtained extends DomainEvent {
+  final String accessToken;
+  final DateTime expiresAt;
+  TokenObtained(this.accessToken, this.expiresAt);
+}
+
+/// Event when token acquisition fails
+class TokenAcquisitionFailed extends DomainEvent {
+  final String message;
+  TokenAcquisitionFailed(this.message);
+}
+
+/// Event when token is about to expire
+class TokenExpiring extends DomainEvent {
+  final Duration timeLeft;
+  TokenExpiring(this.timeLeft);
+}
+
+/// Event when token has expired
+class TokenExpired extends DomainEvent {}
+
+/// Event when token refresh succeeds
+class TokenRefreshed extends DomainEvent {
+  final String accessToken;
+  final DateTime expiresAt;
+  TokenRefreshed(this.accessToken, this.expiresAt);
+}
+
+/// Event when token refresh fails
+class TokenRefreshFailed extends DomainEvent {
+  final String message;
+  TokenRefreshFailed(this.message);
+}
+
+/// Event when current user info is retrieved
+class CurrentUserRetrieved extends DomainEvent {
+  final User user;
+  CurrentUserRetrieved(this.user);
 }
 
 /// Event when user logs out
 class UserLoggedOut extends DomainEvent {}
-
-/// Event when authentication fails
-class AuthenticationFailed extends DomainEvent {
-  final String message;
-  AuthenticationFailed(this.message);
-}
-
-/// Event when user session expires
-class SessionExpired extends DomainEvent {}
-
-/// Event when user profile is updated
-class UserProfileUpdated extends DomainEvent {
-  final User user;
-  UserProfileUpdated(this.user);
-}
-
-/// Event when user registration is completed
-class UserRegistered extends DomainEvent {
-  final User user;
-  UserRegistered(this.user);
-}

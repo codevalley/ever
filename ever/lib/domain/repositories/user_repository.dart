@@ -3,24 +3,31 @@ import 'base_repository.dart';
 
 /// Repository interface for User operations
 abstract class UserRepository extends BaseRepository<User> {
-  /// Authenticate user with credentials
-  void authenticate(String username, String password);
+  /// Register a new user with username
+  void register(String username);
   
-  /// Register a new user
-  void register(String username, String password);
+  /// Obtain access token using user secret
+  void obtainToken(String userSecret);
+
+  /// Refresh the access token using user secret
+  /// This should be called when the current token is about to expire
+  void refreshToken();
   
-  /// Get currently authenticated user
+  /// Get currently authenticated user info
   void getCurrentUser();
   
-  /// Sign out current user
+  /// Sign out current user (clear token)
   void signOut();
   
-  /// Update user profile
-  void updateProfile(User user);
-  
-  /// Check if user is authenticated
+  /// Check if user has a valid token
   bool get isAuthenticated;
   
-  /// Get current authentication token if any
+  /// Get current access token if any
   String? get currentToken;
+  
+  /// Get current user secret if any
+  String? get currentUserSecret;
+
+  /// Get token expiration time if any
+  DateTime? get tokenExpiresAt;
 }

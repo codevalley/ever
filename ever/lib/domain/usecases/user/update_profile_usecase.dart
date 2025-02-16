@@ -2,28 +2,27 @@ import 'dart:async';
 
 import '../../core/events.dart';
 import '../../core/user_events.dart';
+import '../../entities/user.dart';
 import '../../repositories/user_repository.dart';
 import '../base_usecase.dart';
 
-/// Parameters for obtaining token
-class ObtainTokenParams {
-  final String userSecret;
+/// Parameters for updating user profile
+class UpdateProfileParams {
+  final User user;
 
-  ObtainTokenParams({
-    required this.userSecret,
-  });
+  UpdateProfileParams({required this.user});
 }
 
-/// Use case for obtaining access token
-class ObtainTokenUseCase extends BaseUseCase<ObtainTokenParams> {
+/// Use case for updating user profile
+class UpdateProfileUseCase extends BaseUseCase<UpdateProfileParams> {
   final UserRepository _repository;
   final _eventController = StreamController<DomainEvent>.broadcast();
 
-  ObtainTokenUseCase(this._repository) {
+  UpdateProfileUseCase(this._repository) {
     _repository.events.listen((event) {
-      if (event is TokenObtained ||
-          event is TokenAcquisitionFailed ||
-          event is OperationInProgress) {
+      if (event is UserProfileUpdated ||
+          event is OperationInProgress ||
+          event is OperationFailure) {
         _eventController.add(event);
       }
     });
@@ -33,8 +32,8 @@ class ObtainTokenUseCase extends BaseUseCase<ObtainTokenParams> {
   Stream<DomainEvent> get events => _eventController.stream;
 
   @override
-  void execute(ObtainTokenParams params) {
-    _repository.obtainToken(params.userSecret);
+  void execute(UpdateProfileParams params) {
+    _repository.updateProfile(params.user);
   }
 
   @override
