@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import '../../domain/core/circuit_breaker.dart';
 import '../../domain/core/events.dart';
+import '../../domain/core/retry_config.dart';
 import '../../domain/core/user_events.dart';
 import '../../domain/datasources/user_ds.dart';
 import '../../domain/entities/user.dart';
@@ -11,18 +13,26 @@ import '../config/api_config.dart';
 class UserRepositoryImpl implements UserRepository {
   final UserDataSource _dataSource;
   final _eventController = StreamController<DomainEvent>.broadcast();
+  final CircuitBreaker _circuitBreaker;
+  final RetryConfig _retryConfig;
+  StreamSubscription? _dataSourceSubscription;
   
   String? _currentToken;
   String? _userSecret;
   DateTime? _tokenExpiresAt;
   User? _currentUser;
 
-  UserRepositoryImpl(this._dataSource) {
+  UserRepositoryImpl(
+    this._dataSource, {
+    CircuitBreaker? circuitBreaker,
+    RetryConfig? retryConfig,
+  }) : _circuitBreaker = circuitBreaker ?? CircuitBreaker(),
+       _retryConfig = retryConfig ?? RetryConfig.defaultConfig {
     // Initialize state from data source
     _dataSource.cachedUserSecret.then((secret) => _userSecret = secret);
     
     // Listen to data source events and transform to domain events
-    _dataSource.events.listen((event) {
+    _dataSourceSubscription = _dataSource.events.listen((event) {
       if (event is OperationSuccess) {
         if (event.data is User) {
           _handleUserSuccess(event.data as User);
@@ -64,6 +74,26 @@ class UserRepositoryImpl implements UserRepository {
   @override
   Stream<DomainEvent> get events => _eventController.stream;
 
+  /// Get the currently authenticated user, if any
+  User? get currentUser => _currentUser;
+
+  /// Check if there is an authenticated user
+  @override
+  bool get isAuthenticated => 
+    _currentUser != null && 
+    _currentToken != null && 
+    _tokenExpiresAt != null && 
+    _tokenExpiresAt!.isAfter(DateTime.now());
+
+  @override
+  String? get currentToken => _currentToken;
+
+  @override
+  String? get currentUserSecret => _userSecret;
+
+  @override
+  DateTime? get tokenExpiresAt => _tokenExpiresAt;
+
   /// Initialize the repository state from data source
   Future<void> initialize() async {
     // Load cached user secret
@@ -74,6 +104,17 @@ class UserRepositoryImpl implements UserRepository {
     _tokenExpiresAt = await _dataSource.tokenExpiresAt;
     // Initialize data source
     await _dataSource.initialize();
+    // If we have a token, try to get current user
+    if (_currentToken != null) {
+      try {
+        await getCurrentUser().first;
+      } catch (e) {
+        // Failed to get user, clear token
+        _currentToken = null;
+        _tokenExpiresAt = null;
+        _currentUser = null;
+      }
+    }
   }
 
   @override
@@ -91,15 +132,49 @@ class UserRepositoryImpl implements UserRepository {
 
   @override
   Stream<String> obtainToken(String userSecret) async* {
-    _userSecret = userSecret;
     try {
-      await for (final token in _dataSource.obtainToken(userSecret)) {
+      await for (final token in Stream.fromFuture(_circuitBreaker.execute(() async {
+        var attempts = 0;
+        while (true) {
+          try {
+            attempts++;
+            final tokenStream = _dataSource.obtainToken(userSecret.trim());
+            try {
+              await for (final token in tokenStream) {
+                return token;
+              }
+              throw Exception('No token received from data source');
+            } catch (streamError) {
+              if (!_retryConfig.shouldRetry(streamError) || attempts >= _retryConfig.maxAttempts) {
+                rethrow;
+              }
+              await Future.delayed(_retryConfig.getDelayForAttempt(attempts));
+              continue;
+            }
+          } catch (error) {
+            if (!_retryConfig.shouldRetry(error) || attempts >= _retryConfig.maxAttempts) {
+              rethrow;
+            }
+            await Future.delayed(_retryConfig.getDelayForAttempt(attempts));
+          }
+        }
+      }))) {
+        _userSecret = userSecret;
         _currentToken = token;
         _tokenExpiresAt = DateTime.now().add(ApiConfig.tokenConfig.tokenLifetime);
         yield token;
       }
+    } on CircuitBreakerException catch (e) {
+      _eventController.add(OperationFailure(
+        'obtain_token',
+        'Service temporarily unavailable: ${e.message}',
+      ));
+      rethrow;
     } catch (e) {
-      _handleOperationFailure(e.toString());
+      _eventController.add(OperationFailure(
+        'obtain_token',
+        'Failed to obtain token: ${e.toString()}',
+      ));
       rethrow;
     }
   }
@@ -155,21 +230,6 @@ class UserRepositoryImpl implements UserRepository {
   }
 
   @override
-  bool get isAuthenticated => 
-    _currentToken != null && 
-    _tokenExpiresAt != null && 
-    _tokenExpiresAt!.isAfter(DateTime.now());
-
-  @override
-  String? get currentToken => _currentToken;
-
-  @override
-  String? get currentUserSecret => _userSecret;
-
-  @override
-  DateTime? get tokenExpiresAt => _tokenExpiresAt;
-
-  @override
   Stream<User> create(User entity) {
     throw UnimplementedError('Create operation not supported for User entity');
   }
@@ -196,6 +256,8 @@ class UserRepositoryImpl implements UserRepository {
 
   @override
   void dispose() {
+    _dataSourceSubscription?.cancel();
+    _circuitBreaker.dispose();
     _eventController.close();
   }
 }

@@ -21,7 +21,13 @@ class ObtainTokenParams {
     if (trimmed.isEmpty) {
       return 'User secret cannot be empty';
     }
-    // Add more validation if needed based on user secret format
+    if (trimmed.length < 8) {
+      return 'User secret must be at least 8 characters';
+    }
+    // Basic format validation - should contain at least one letter and one number
+    if (!RegExp(r'^(?=.*[A-Za-z])(?=.*\d)').hasMatch(trimmed)) {
+      return 'User secret must contain at least one letter and one number';
+    }
     return null;
   }
 }
@@ -34,46 +40,46 @@ class ObtainTokenParams {
 /// 3. Emits appropriate events:
 ///    - [OperationInProgress]: When token acquisition starts
 ///    - [TokenObtained]: When token is obtained successfully
-///    - [TokenAcquisitionFailed]: When validation or token acquisition fails
-///    - [TokenExpiring]: When token is about to expire (via RefreshTokenUseCase)
-///    - [TokenExpired]: When token has expired (via RefreshTokenUseCase)
+///    - [OperationFailure]: When validation or token acquisition fails
+///    - [TokenExpiring]: When token is about to expire
+///    - [TokenExpired]: When token has expired
 class ObtainTokenUseCase extends BaseUseCase<ObtainTokenParams> {
   final UserRepository _repository;
   final _eventController = StreamController<DomainEvent>.broadcast();
+  StreamSubscription? _repositorySubscription;
 
   ObtainTokenUseCase(this._repository) {
-    // Listen to repository events and transform them if needed
-    _repository.events.listen((event) {
-      if (event is TokenObtained) {
-        // Forward token events as is
-        _eventController.add(event);
-      } else if (event is OperationFailure) {
-        // Transform generic failure to token-specific failure
-        _eventController.add(TokenAcquisitionFailed(event.error));
-      } else if (event is OperationInProgress) {
-        _eventController.add(event);
-      }
-    });
+    // Listen to repository events and forward relevant ones
+    _repositorySubscription = _repository.events.listen(_eventController.add);
   }
 
   @override
   Stream<DomainEvent> get events => _eventController.stream;
 
   @override
-  void execute(ObtainTokenParams params) {
+  void execute(ObtainTokenParams params) async {
     // Validate input parameters
     final validationError = params.validate();
     if (validationError != null) {
-      _eventController.add(TokenAcquisitionFailed(validationError));
+      _eventController.add(OperationFailure(
+        'obtain_token',
+        validationError,
+      ));
       return;
     }
 
-    // Proceed with token acquisition
-    _repository.obtainToken(params.userSecret.trim());
+    try {
+      await for (final token in _repository.obtainToken(params.userSecret)) {
+        // Token obtained successfully, repository will emit appropriate events
+      }
+    } catch (e) {
+      // Repository will emit appropriate failure events
+    }
   }
 
   @override
   void dispose() {
+    _repositorySubscription?.cancel();
     _eventController.close();
   }
 }

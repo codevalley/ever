@@ -310,6 +310,311 @@ Future<T> execute<T>(Future<T> Function() operation) async {
    - Error trending
    - Performance impact
 
+## Configuration Guidelines
+
+### 1. Retry Configuration Guidelines
+
+```dart
+final retryConfig = RetryConfig(
+  maxAttempts: 3,        // Start conservative
+  initialDelay: Duration(seconds: 1),
+  maxDelay: Duration(seconds: 10),
+  backoffFactor: 2.0,
+);
+```
+
+#### Key Considerations:
+1. **Max Attempts**:
+   - Start with 3-5 attempts for most operations
+   - Consider operation criticality
+   - Balance user experience vs server load
+   - Example: Auth operations = 3, Data sync = 5
+
+2. **Delay Strategy**:
+   - Initial delay: 1 second (standard)
+   - Max delay: 10 seconds (prevent long waits)
+   - Backoff factor: 2.0 (standard exponential)
+   - Example delays: 1s → 2s → 4s → 8s → 10s
+
+3. **Operation Types**:
+   ```dart
+   // Network operations (more retries)
+   final networkConfig = RetryConfig(
+     maxAttempts: 5,
+     initialDelay: Duration(seconds: 1),
+     maxDelay: Duration(seconds: 10),
+     backoffFactor: 2.0,
+   );
+
+   // User operations (fewer retries)
+   final userConfig = RetryConfig(
+     maxAttempts: 3,
+     initialDelay: Duration(milliseconds: 500),
+     maxDelay: Duration(seconds: 5),
+     backoffFactor: 2.0,
+   );
+   ```
+
+### 2. Circuit Breaker Configuration
+
+```dart
+final circuitConfig = CircuitBreakerConfig(
+  failureThreshold: 5,    // Failures before opening
+  resetTimeout: Duration(seconds: 30),
+  halfOpenMaxAttempts: 3,
+);
+```
+
+#### Key Considerations:
+1. **Failure Threshold**:
+   - Start with 5 failures
+   - Consider traffic patterns
+   - Account for normal error rates
+   - Example: High traffic = 10, Low traffic = 5
+
+2. **Reset Timeout**:
+   - Match service recovery patterns
+   - Consider dependencies
+   - Default: 30-60 seconds
+   - Example: Simple API = 30s, Complex service = 60s
+
+3. **Half-Open State**:
+   - Limited trial calls (2-3)
+   - Prevent premature recovery
+   - Consider service capacity
+   - Example: 3 attempts for gradual recovery
+
+## Event Handling
+
+### 1. Event Types
+
+```dart
+// Operation Events
+OperationInProgress
+OperationSuccess
+OperationFailure
+
+// Retry Events
+RetryAttempt
+RetrySuccess
+RetryExhausted
+
+// Circuit Breaker Events
+ServiceDegraded
+ServiceRestored
+OperationRejected
+
+// Domain Events
+UserRegistered
+TokenObtained
+TokenRefreshFailed
+```
+
+### 2. Event Flow
+
+```mermaid
+sequenceDiagram
+    participant UI
+    participant Repository
+    participant DataSource
+    participant Service
+
+    Service->>DataSource: Operation Start
+    DataSource->>Repository: OperationInProgress
+    Repository->>UI: OperationInProgress
+
+    alt Success Path
+        Service-->>DataSource: Success Response
+        DataSource->>Repository: OperationSuccess
+        Repository->>UI: DomainEvent (e.g., UserRegistered)
+    else Retry Path
+        Service-->>DataSource: Failure
+        DataSource->>Repository: RetryAttempt
+        Repository->>UI: RetryAttempt
+        DataSource->>Service: Retry Operation
+    else Circuit Open
+        Service-->>DataSource: Multiple Failures
+        DataSource->>Repository: ServiceDegraded
+        Repository->>UI: ServiceDegraded
+    end
+```
+
+### 3. Event Handling Best Practices
+
+1. **Event Transformation**:
+   ```dart
+   // Transform low-level events to domain events
+   void _handleUserSuccess(User user) {
+     if (user.userSecret != null) {
+       _eventController.add(UserRegistered(user));
+     } else {
+       _eventController.add(CurrentUserRetrieved(user));
+     }
+   }
+   ```
+
+2. **Event Propagation**:
+   ```dart
+   // Listen to data source events
+   _dataSource.events.listen((event) {
+     if (event is OperationSuccess) {
+       _handleSuccess(event.data);
+     } else if (event is OperationFailure) {
+       _handleFailure(event.error);
+     } else {
+       // Forward other events
+       _eventController.add(event);
+     }
+   });
+   ```
+
+## Monitoring and Observability
+
+### 1. Key Metrics
+
+1. **Operation Metrics**:
+   - Success/failure rates
+   - Operation latency
+   - Error distribution
+   - Active operations
+
+2. **Retry Metrics**:
+   - Retry attempts per operation
+   - Retry success rate
+   - Average attempts before success
+   - Retry exhaustion rate
+
+3. **Circuit Breaker Metrics**:
+   - Circuit state changes
+   - Time in each state
+   - Rejection rate
+   - Recovery success rate
+
+### 2. Monitoring Implementation
+
+```dart
+class MetricsCollector {
+  // Operation metrics
+  final _operationLatency = <String, Duration>{};
+  final _operationCounts = <String, int>{};
+  
+  // Retry metrics
+  final _retryAttempts = <String, int>{};
+  final _retrySuccess = <String, int>{};
+  
+  // Circuit breaker metrics
+  final _circuitStateChanges = <String, int>{};
+  final _rejectionCount = <String, int>{};
+  
+  void recordOperation(String operation, Duration latency) {
+    _operationLatency[operation] = latency;
+    _operationCounts[operation] = 
+      (_operationCounts[operation] ?? 0) + 1;
+  }
+  
+  void recordRetry(String operation) {
+    _retryAttempts[operation] = 
+      (_retryAttempts[operation] ?? 0) + 1;
+  }
+  
+  void recordCircuitStateChange(String newState) {
+    _circuitStateChanges[newState] = 
+      (_circuitStateChanges[newState] ?? 0) + 1;
+  }
+}
+```
+
+### 3. Alerting Guidelines
+
+1. **Critical Alerts**:
+   - Circuit breaker opens
+   - High retry exhaustion rate
+   - Persistent failures
+   - Service degradation
+
+2. **Warning Alerts**:
+   - Increased retry attempts
+   - Latency spikes
+   - Error rate increase
+   - Resource usage
+
+3. **Alert Configuration**:
+   ```dart
+   class AlertConfig {
+     final double errorRateThreshold;    // e.g., 0.1 (10%)
+     final Duration latencyThreshold;    // e.g., 5 seconds
+     final int retryExhaustionThreshold; // e.g., 10 per minute
+     final Duration circuitOpenDuration; // e.g., 5 minutes
+   }
+   ```
+
+## Testing Guidelines
+
+### 1. Unit Testing Resilience Patterns
+
+```dart
+test('should retry on network error and succeed', () async {
+  var attempts = 0;
+  when(client.post(any))
+    .thenAnswer((_) async {
+      attempts++;
+      if (attempts < 3) {
+        throw NetworkException();
+      }
+      return successResponse;
+    });
+
+  final result = await operation.execute();
+  expect(attempts, 3);
+  expect(result, isNotNull);
+});
+```
+
+### 2. Integration Testing
+
+```dart
+test('end-to-end flow with resilience', () async {
+  // Setup test configurations
+  final testRetryConfig = RetryConfig(
+    maxAttempts: 3,
+    initialDelay: Duration(milliseconds: 10),
+    maxDelay: Duration(milliseconds: 50),
+    backoffFactor: 2.0,
+  );
+
+  // Test with intermittent failures
+  final events = await repository
+    .register(username)
+    .map((event) => event.runtimeType)
+    .toList();
+
+  expect(events, containsAllInOrder([
+    OperationInProgress,
+    RetryAttempt,
+    RetrySuccess,
+    UserRegistered,
+  ]));
+});
+```
+
+### 3. Event Testing
+
+```dart
+test('should emit correct event sequence', () async {
+  final events = [];
+  repository.events.listen(events.add);
+
+  // Trigger operation
+  await repository.operation();
+
+  expect(events, containsAllInOrder([
+    isA<OperationInProgress>(),
+    isA<RetryAttempt>(),
+    isA<OperationSuccess>(),
+  ]));
+});
+```
+
 ## Future Improvements
 
 1. **Enhanced Monitoring**:
