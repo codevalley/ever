@@ -271,12 +271,15 @@ lib/
       - [x] Sign Out UseCase
          - [x] Review and update implementation
          - [x] Add comprehensive unit tests
+         - [x] Add integration tests
       - [ ] Update Profile UseCase
          - [ ] Review and update implementation
          - [ ] Add comprehensive unit tests
-      - [ ] Refresh Token UseCase
-         - [ ] Review and update implementation
-         - [ ] Add comprehensive unit tests
+      - [x] Refresh Token UseCase
+         - [x] Review and update implementation
+         - [x] Add comprehensive unit tests
+         - [x] Add token expiration monitoring
+         - [x] Add automatic refresh mechanism
       - [ ] Get Current User UseCase
          - [ ] Review and update implementation
          - [ ] Add comprehensive unit tests

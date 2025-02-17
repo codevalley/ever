@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../core/events.dart';
+import '../../core/user_events.dart';
 import '../../repositories/user_repository.dart';
 import '../base_usecase.dart';
 
@@ -12,7 +13,7 @@ import '../base_usecase.dart';
 /// 3. Notify system of user sign out
 /// 
 /// Events:
-/// - [UserSignedOut]: When sign out is successful
+/// - [UserLoggedOut]: When sign out is successful
 /// - [OperationFailure]: When sign out fails
 /// - [OperationInProgress]: When sign out is in progress
 class SignOutUseCase extends NoParamsUseCase {
@@ -25,7 +26,7 @@ class SignOutUseCase extends NoParamsUseCase {
   SignOutUseCase(this._repository) {
     // Listen to repository events and transform them if needed
     _repository.events.listen((event) {
-      if (event is UserSignedOut) {
+      if (event is UserLoggedOut) {
         _isSigningOut = false;
         _eventController.add(event);
       } else if (event is OperationFailure) {
@@ -36,7 +37,7 @@ class SignOutUseCase extends NoParamsUseCase {
             error.contains('no user') ||
             error.contains('unauthorized')) {
           // If user is already signed out or not found, consider it a success
-          _eventController.add(UserSignedOut());
+          _eventController.add(const UserLoggedOut());
         } else {
           _eventController.add(event);
         }

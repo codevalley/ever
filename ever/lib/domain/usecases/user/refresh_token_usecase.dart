@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../core/events.dart';
+import '../../core/user_events.dart';
 import '../../repositories/user_repository.dart';
 import '../base_usecase.dart';
 
@@ -38,7 +39,11 @@ class RefreshTokenUseCase extends NoParamsUseCase {
   RefreshTokenUseCase(this._repository) {
     // Listen to repository events and manage token lifecycle
     _repository.events.listen((event) {
-      if (event is TokenObtained || event is TokenRefreshed) {
+      if (event is TokenObtained) {
+        _isRefreshing = false;
+        _setupExpirationTimers(event.expiresAt);
+        _eventController.add(event);
+      } else if (event is TokenRefreshed) {
         _isRefreshing = false;
         _setupExpirationTimers(event.expiresAt);
         _eventController.add(event);
