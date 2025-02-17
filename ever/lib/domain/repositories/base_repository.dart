@@ -2,24 +2,30 @@ import 'dart:async';
 import '../core/events.dart';
 
 /// Base interface for all repositories
+/// All operations return Streams to maintain reactive pattern consistency
 abstract class BaseRepository<T> {
   /// Stream of domain events from this repository
   Stream<DomainEvent> get events;
 
   /// Create a new entity
-  void create(T entity);
+  /// Returns a Stream of the created entity
+  Stream<T> create(T entity);
 
   /// Read an entity by ID
-  void read(String id);
+  /// Returns a Stream of the retrieved entity
+  Stream<T> read(String id);
 
   /// Update an existing entity
-  void update(T entity);
+  /// Returns a Stream of the updated entity
+  Stream<T> update(T entity);
 
   /// Delete an entity by ID
-  void delete(String id);
+  /// Returns a Stream that completes when deletion is done
+  Stream<void> delete(String id);
 
   /// List all entities with optional filtering
-  void list({Map<String, dynamic>? filters});
+  /// Returns a Stream of entity lists
+  Stream<List<T>> list({Map<String, dynamic>? filters});
 
   /// Dispose of any resources
   void dispose();

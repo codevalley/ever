@@ -8,7 +8,7 @@ import '../../domain/repositories/user_repository.dart';
 import '../config/api_config.dart';
 import '../models/user_model.dart';
 
-/// Implementation of UserRepository
+/// Implementation of UserRepository that provides reactive streams
 class UserRepositoryImpl implements UserRepository {
   final UserDataSource _dataSource;
   final _eventController = StreamController<DomainEvent>.broadcast();
@@ -60,7 +60,7 @@ class UserRepositoryImpl implements UserRepository {
     if (_currentToken == null) {
       _eventController.add(TokenAcquisitionFailed(error));
     } else {
-      _eventController.add(OperationFailure(error));
+      _eventController.add(OperationFailure(ApiConfig.operations.auth.generic, error));
     }
   }
 
@@ -68,48 +68,106 @@ class UserRepositoryImpl implements UserRepository {
   Stream<DomainEvent> get events => _eventController.stream;
 
   @override
-  void register(String username) {
-    _dataSource.register(username);
+  Stream<User> register(String username) async* {
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.register));
+    
+    try {
+      await _dataSource.register(username);
+      // Wait for UserRegistered event which contains the user
+      await for (final event in events) {
+        if (event is UserRegistered) {
+          yield event.user;
+          break;
+        } else if (event is OperationFailure) {
+          throw Exception(event.error);
+        }
+      }
+    } catch (e) {
+      _handleOperationFailure(e.toString());
+      rethrow;
+    }
   }
 
   @override
-  void obtainToken(String userSecret) {
+  Stream<String> obtainToken(String userSecret) async* {
     _userSecret = userSecret;
-    _dataSource.obtainToken(userSecret);
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.obtainToken));
+    
+    try {
+      await _dataSource.obtainToken(userSecret);
+      // Wait for TokenObtained event
+      await for (final event in events) {
+        if (event is TokenObtained) {
+          yield event.accessToken;
+          break;
+        } else if (event is TokenAcquisitionFailed) {
+          throw Exception(event.message);
+        }
+      }
+    } catch (e) {
+      _handleOperationFailure(e.toString());
+      rethrow;
+    }
   }
 
   @override
-  void refreshToken() {
+  Stream<String> refreshToken() async* {
     if (_userSecret == null) {
-      _eventController.add(
-        TokenRefreshFailed('No user secret available for token refresh'),
-      );
-      return;
+      throw Exception('No user secret available for token refresh');
     }
-    _dataSource.obtainToken(_userSecret!);
+    
+    try {
+      yield* obtainToken(_userSecret!);
+    } catch (e) {
+      _eventController.add(TokenRefreshFailed(e.toString()));
+      rethrow;
+    }
   }
 
   @override
-  void getCurrentUser() {
+  Stream<User> getCurrentUser() async* {
     if (_currentToken == null) {
-      _eventController.add(
-        OperationFailure('No access token available'),
-      );
-      return;
+      throw Exception('No access token available');
     }
-    _dataSource.getCurrentUser();
+    
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.getCurrentUser));
+    
+    try {
+      await _dataSource.getCurrentUser();
+      // Wait for CurrentUserRetrieved event
+      await for (final event in events) {
+        if (event is CurrentUserRetrieved) {
+          yield event.user;
+          break;
+        } else if (event is OperationFailure) {
+          throw Exception(event.error);
+        }
+      }
+    } catch (e) {
+      _handleOperationFailure(e.toString());
+      rethrow;
+    }
   }
 
   @override
-  void signOut() {
-    _currentToken = null;
-    _tokenExpiresAt = null;
-    _currentUser = null;
-    _eventController.add(UserLoggedOut());
+  Stream<void> signOut() async* {
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.signOut));
+    
+    try {
+      await _dataSource.signOut();
+      _currentToken = null;
+      _tokenExpiresAt = null;
+      _currentUser = null;
+      _eventController.add(UserLoggedOut());
+    } catch (e) {
+      _handleOperationFailure(e.toString());
+      rethrow;
+    }
   }
 
   @override
-  bool get isAuthenticated => _currentToken != null && 
+  bool get isAuthenticated => 
+    _currentToken != null && 
     _tokenExpiresAt != null && 
     _tokenExpiresAt!.isAfter(DateTime.now());
 
@@ -122,6 +180,32 @@ class UserRepositoryImpl implements UserRepository {
   @override
   DateTime? get tokenExpiresAt => _tokenExpiresAt;
 
+  @override
+  Stream<User> create(User entity) {
+    throw UnimplementedError('Create operation not supported for User entity');
+  }
+
+  @override
+  Stream<void> delete(String id) {
+    throw UnimplementedError('Delete operation not supported for User entity');
+  }
+
+  @override
+  Stream<List<User>> list({Map<String, dynamic>? filters}) {
+    throw UnimplementedError('List operation not supported for User entity');
+  }
+
+  @override
+  Stream<User> read(String id) {
+    throw UnimplementedError('Read operation not supported for User entity');
+  }
+
+  @override
+  Stream<User> update(User entity) {
+    throw UnimplementedError('Update operation not supported for User entity');
+  }
+
+  @override
   void dispose() {
     _eventController.close();
   }

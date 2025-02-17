@@ -191,8 +191,16 @@ lib/
       - [x] SignOutUseCase (with edge case handling)
    - [x] Add comprehensive error handling
    - [ ] Add unit tests for components:
-      - [ ] User entity tests
-      - [ ] Repository tests
+      - [x] User entity tests
+      - [ ] Data source tests:
+         - [ ] REST API integration
+         - [ ] Local storage (Isar)
+         - [ ] Error handling
+         - [ ] Event emission
+      - [ ] Repository tests:
+         - [ ] Event transformation
+         - [ ] Domain mapping
+         - [ ] Error handling
       - [ ] Use case tests:
          - [ ] RegisterUseCase
          - [ ] ObtainTokenUseCase

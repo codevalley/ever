@@ -20,6 +20,9 @@ class ApiConfig {
 
   /// API request/response keys
   static const keys = _ApiKeys();
+
+  /// Operation names
+  static const operations = _Operations();
 }
 
 /// API endpoint paths
@@ -117,12 +120,37 @@ class _UserKeys {
   /// User ID key
   String get id => 'id';
 
-  /// User display name key
-  String get displayName => 'display_name';
-
   /// User creation timestamp key
   String get createdAt => 'created_at';
 
   /// User last modified timestamp key
   String get updatedAt => 'updated_at';
+}
+
+/// Operation names for events and logging
+class _Operations {
+  const _Operations();
+
+  /// Authentication related operations
+  final auth = const _AuthOperations();
+}
+
+/// Authentication related operation names
+class _AuthOperations {
+  const _AuthOperations();
+
+  /// Register operation name
+  String get register => 'auth_register';
+
+  /// Obtain token operation name
+  String get obtainToken => 'auth_obtain_token';
+
+  /// Get current user operation name
+  String get getCurrentUser => 'auth_get_current_user';
+
+  /// Sign out operation name
+  String get signOut => 'auth_sign_out';
+
+  /// Generic auth operation name
+  String get generic => 'auth_operation';
 }

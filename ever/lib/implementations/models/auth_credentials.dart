@@ -1,50 +1,50 @@
 import 'package:isar/isar.dart';
 
-/// Isar collection for storing authentication credentials
-@collection
+/// Model for storing authentication credentials
+@Collection()
 class AuthCredentials {
-  /// Isar ID - We use ID 1 as we only ever need one instance of credentials
-  /// This is a common pattern in Isar when you need a singleton object
-  /// The ID is used as a primary key to ensure we only have one record
-  Id id = 1;
-  
-  /// User secret obtained during registration
-  /// Used to obtain new access tokens
+  /// Primary key for Isar
+  Id id = 1; // Fixed ID since we only store one instance
+
+  /// User secret for obtaining tokens
   String? userSecret;
 
-  /// Current access token for API calls
+  /// Current access token
   String? accessToken;
 
   /// When the current token expires
   DateTime? tokenExpiresAt;
 
-  /// Check if the token is expired or about to expire
-  /// [threshold] is how close to expiration we consider it "expired"
-  bool isExpiredOrExpiring(Duration threshold) {
-    if (tokenExpiresAt == null) return true;
-    return tokenExpiresAt!.isBefore(DateTime.now().add(threshold));
-  }
-
-  /// Create a new instance with updated token information
+  /// Create a copy with updated token information
   AuthCredentials copyWithToken({
     required String accessToken,
     required DateTime expiresAt,
   }) {
-    return AuthCredentials()
+    final copy = AuthCredentials()
       ..id = id
       ..userSecret = userSecret
       ..accessToken = accessToken
       ..tokenExpiresAt = expiresAt;
+    return copy;
   }
 
-  /// Create a new instance with updated user secret
+  /// Create a copy with updated user secret
   AuthCredentials copyWithSecret({
     required String userSecret,
   }) {
-    return AuthCredentials()
+    final copy = AuthCredentials()
       ..id = id
       ..userSecret = userSecret
       ..accessToken = accessToken
       ..tokenExpiresAt = tokenExpiresAt;
+    return copy;
+  }
+
+  /// Check if token is expired or will expire soon
+  bool isExpiredOrExpiring(Duration threshold) {
+    if (tokenExpiresAt == null) return true;
+    final now = DateTime.now();
+    return now.isAfter(tokenExpiresAt!) ||
+           now.add(threshold).isAfter(tokenExpiresAt!);
   }
 }

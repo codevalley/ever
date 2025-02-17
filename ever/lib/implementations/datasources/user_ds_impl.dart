@@ -6,114 +6,143 @@ import 'package:isar/isar.dart';
 import 'package:synchronized/synchronized.dart';
 
 import '../../domain/core/events.dart';
+import '../../domain/core/retry_config.dart';
+import '../../domain/core/retry_events.dart';
 import '../../domain/datasources/user_ds.dart';
 import '../../domain/entities/user.dart';
 import '../config/api_config.dart';
+import '../config/error_messages.dart';
 import '../models/auth_credentials.dart';
 import '../models/user_model.dart';
 
 /// Implementation of UserDataSource using HTTP and Isar
 class UserDataSourceImpl implements UserDataSource {
   final Isar _isar;
+  final http.Client _client;
   final _eventController = StreamController<DomainEvent>.broadcast();
-  final _refreshLock = Lock(); // For synchronizing token refresh
+  final _refreshLock = Lock();
   
+  final RetryConfig _retryConfig;
   bool _isRefreshing = false;
   String? _currentToken;
 
   UserDataSourceImpl({
     required Isar isar,
-  }) : _isar = isar;
+    http.Client? client,
+    RetryConfig? retryConfig,
+  }) : _isar = isar,
+       _client = client ?? http.Client(),
+       _retryConfig = retryConfig ?? RetryConfig.defaultConfig;
+
+  @override
+  Stream<User> create(User entity) => 
+    throw UnsupportedError(ErrorMessages.user.createNotSupported);
+
+  @override
+  Stream<void> delete(String id) =>
+    throw UnsupportedError(ErrorMessages.user.deleteNotSupported);
+
+  @override
+  Stream<List<User>> list({Map<String, dynamic>? filters}) =>
+    throw UnsupportedError(ErrorMessages.user.listNotSupported);
+
+  @override
+  Stream<User> read(String id) =>
+    throw UnsupportedError(ErrorMessages.user.readNotSupported);
+
+  @override
+  Stream<User> update(User entity) =>
+    throw UnsupportedError(ErrorMessages.user.updateNotSupported);
+
+  @override
+  bool isOperationSupported(String operation) => false;
 
   @override
   Future<void> initialize() async {
-    final credentials = await _isar.authCredentials.get(1);
+    final collection = _isar.collection<AuthCredentials>();
+    final credentials = await collection.get(1);
     if (credentials != null) {
       _currentToken = credentials.accessToken;
       // If token is expired or about to expire, refresh it
       if (credentials.isExpiredOrExpiring(ApiConfig.tokenConfig.refreshThreshold)) {
         if (credentials.userSecret != null) {
-          await obtainToken(credentials.userSecret!);
+          await obtainToken(credentials.userSecret!).first;
         }
       }
     }
   }
 
+  /// Execute an operation with retry logic and event tracking
+  Future<T> _executeWithRetry<T>(
+    String operation,
+    Future<T> Function() apiCall,
+  ) async {
+    int attempts = 0;
+    
+    while (true) {
+      try {
+        attempts++;
+        final result = await apiCall();
+        
+        if (attempts > 1) {
+          _eventController.add(RetrySuccess(operation, attempts));
+        }
+        
+        return result;
+      } catch (error) {
+        if (!_retryConfig.shouldRetry(error) || attempts >= _retryConfig.maxAttempts) {
+          if (attempts > 1) {
+            _eventController.add(RetryExhausted(operation, error, attempts));
+          }
+          rethrow;
+        }
+        
+        final delay = _retryConfig.getDelayForAttempt(attempts);
+        _eventController.add(RetryAttempt(operation, attempts, delay, error));
+        await Future.delayed(delay);
+      }
+    }
+  }
+
   @override
-  Future<void> register(String username) async {
-    _eventController.add(OperationInProgress());
+  Stream<User> register(String username) async* {
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.register));
     
     try {
-      final response = await http.post(
-        Uri.parse(ApiConfig.apiBaseUrl + ApiConfig.endpoints.auth.register),
-        body: jsonEncode({ApiConfig.keys.auth.username: username}),
-        headers: ApiConfig.headers.json,
+      final response = await _executeWithRetry(
+        ApiConfig.operations.auth.register,
+        () => _client.post(
+          Uri.parse(ApiConfig.apiBaseUrl + ApiConfig.endpoints.auth.register),
+          body: jsonEncode({ApiConfig.keys.auth.username: username}),
+          headers: ApiConfig.headers.json,
+        ),
       );
 
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body)[ApiConfig.keys.common.data];
         final userSecret = data[ApiConfig.keys.auth.userSecret] as String;
         
-        // Cache user secret
-        await _isar.writeTxn(() async {
-          await _isar.authCredentials.put(
+        await _isar.writeTxn<void>(() async {
+          await _isar.collection<AuthCredentials>().put(
             AuthCredentials().copyWithSecret(userSecret: userSecret),
           );
         });
         
-        // Convert to UserModel and emit
         final userModel = UserModel.fromJson(data);
-        _eventController.add(OperationSuccess(userModel));
+        _eventController.add(OperationSuccess(ApiConfig.operations.auth.register, userModel));
+        yield userModel.toDomain();
       } else {
-        _handleErrorResponse(response, 'Registration failed');
+        final error = await _handleErrorResponse(
+          ApiConfig.operations.auth.register,
+          response,
+          ErrorMessages.auth.registrationFailed
+        );
+        throw error;
       }
     } catch (e) {
-      _handleError(e);
+      final error = await _handleError(ApiConfig.operations.auth.register, e);
+      throw error;
     }
-  }
-
-  @override
-  Future<void> obtainToken(String userSecret) async {
-    return _refreshLock.synchronized(() async {
-      if (_isRefreshing) return;
-      _isRefreshing = true;
-      _eventController.add(OperationInProgress());
-
-      try {
-        final response = await http.post(
-          Uri.parse(ApiConfig.apiBaseUrl + ApiConfig.endpoints.auth.token),
-          body: jsonEncode({ApiConfig.keys.auth.userSecret: userSecret}),
-          headers: ApiConfig.headers.json,
-        );
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body)[ApiConfig.keys.common.data];
-          _currentToken = data[ApiConfig.keys.auth.accessToken] as String;
-          final expiresAt = DateTime.now().add(ApiConfig.tokenConfig.tokenLifetime);
-          
-          // Cache token and expiration
-          await _isar.writeTxn(() async {
-            final current = await _isar.authCredentials.get(1);
-            await _isar.authCredentials.put(
-              (current ?? AuthCredentials()).copyWithToken(
-                accessToken: _currentToken!,
-                expiresAt: expiresAt,
-              ),
-            );
-          });
-          
-          // Convert to UserModel and emit
-          final userModel = UserModel.fromJson(data);
-          _eventController.add(OperationSuccess(userModel));
-        } else {
-          _handleErrorResponse(response, 'Token acquisition failed');
-        }
-      } catch (e) {
-        _handleError(e);
-      } finally {
-        _isRefreshing = false;
-      }
-    });
   }
 
   @override
@@ -128,15 +157,16 @@ class UserDataSourceImpl implements UserDataSource {
         final statusCode = e is http.Response ? e.statusCode : 0;
         if (statusCode == 401 || statusCode == 403) {
           // Token expired, try to refresh
-          final credentials = await _isar.authCredentials.get(1);
+          final credentials = await _isar.collection<AuthCredentials>().get(1);
           if (credentials?.userSecret != null) {
-            await obtainToken(credentials!.userSecret!);
+            await obtainToken(credentials!.userSecret!).first;
             if (onRefreshSuccess != null) {
               await onRefreshSuccess();
             }
             // Retry the original call
             return await apiCall();
           }
+          throw Exception(ErrorMessages.auth.noUserSecret);
         }
       }
       rethrow;
@@ -144,12 +174,73 @@ class UserDataSourceImpl implements UserDataSource {
   }
 
   @override
-  Future<void> getCurrentUser() async {
-    _eventController.add(OperationInProgress());
+  Stream<String> obtainToken(String userSecret) async* {
+    if (_isRefreshing) {
+      throw Exception(ErrorMessages.operation.operationInProgress);
+    }
+    
+    _isRefreshing = true;
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.obtainToken));
+
+    try {
+      String? token = await _refreshLock.synchronized(() async {
+        try {
+          final response = await _executeWithRetry(
+            ApiConfig.operations.auth.obtainToken,
+            () => _client.post(
+              Uri.parse(ApiConfig.apiBaseUrl + ApiConfig.endpoints.auth.token),
+              body: jsonEncode({ApiConfig.keys.auth.userSecret: userSecret}),
+              headers: ApiConfig.headers.json,
+            ),
+          );
+
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body)[ApiConfig.keys.common.data];
+            _currentToken = data[ApiConfig.keys.auth.accessToken] as String;
+            final expiresAt = DateTime.now().add(ApiConfig.tokenConfig.tokenLifetime);
+            
+            await _isar.writeTxn<void>(() async {
+              final current = await _isar.collection<AuthCredentials>().get(1);
+              await _isar.collection<AuthCredentials>().put(
+                (current ?? AuthCredentials()).copyWithToken(
+                  accessToken: _currentToken!,
+                  expiresAt: expiresAt,
+                ),
+              );
+            });
+            
+            _eventController.add(OperationSuccess(ApiConfig.operations.auth.obtainToken, _currentToken));
+            return _currentToken;
+          } else {
+            final error = await _handleErrorResponse(
+              ApiConfig.operations.auth.obtainToken,
+              response,
+              ErrorMessages.auth.authenticationFailed
+            );
+            throw error;
+          }
+        } catch (e) {
+          final error = await _handleError(ApiConfig.operations.auth.obtainToken, e);
+          throw error;
+        }
+      });
+
+      if (token != null) {
+        yield token;
+      }
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+
+  @override
+  Stream<User> getCurrentUser() async* {
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.getCurrentUser));
     
     try {
-      final response = await executeWithRefresh(
-        () => http.get(
+      final response = await _executeWithRetry(
+        ApiConfig.operations.auth.getCurrentUser,
+        () => _client.get(
           Uri.parse(ApiConfig.apiBaseUrl + ApiConfig.endpoints.auth.me),
           headers: ApiConfig.headers.withAuth(_currentToken!),
         ),
@@ -158,35 +249,59 @@ class UserDataSourceImpl implements UserDataSource {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body)[ApiConfig.keys.common.data];
         final userModel = UserModel.fromJson(data);
-        _eventController.add(OperationSuccess(userModel));
+        _eventController.add(OperationSuccess(ApiConfig.operations.auth.getCurrentUser, userModel));
+        yield userModel.toDomain();
       } else {
-        _handleErrorResponse(response, 'Failed to get user info');
+        final error = await _handleErrorResponse(
+          ApiConfig.operations.auth.getCurrentUser,
+          response,
+          ErrorMessages.user.userNotFound
+        );
+        throw error;
       }
     } catch (e) {
-      _handleError(e);
+      final error = await _handleError(ApiConfig.operations.auth.getCurrentUser, e);
+      throw error;
     }
   }
 
   @override
-  Future<void> signOut() async {
-    await _isar.writeTxn(() async {
-      await _isar.authCredentials.clear();
-    });
-    _currentToken = null;
-    _eventController.add(OperationSuccess(null));
+  Stream<void> signOut() async* {
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.signOut));
+    try {
+      await _isar.writeTxn<void>(() async {
+        await _isar.collection<AuthCredentials>().clear();
+      });
+      _currentToken = null;
+      _eventController.add(OperationSuccess(ApiConfig.operations.auth.signOut, null));
+    } catch (e) {
+      final error = await _handleError(ApiConfig.operations.auth.signOut, e);
+      throw error;
+    }
   }
 
   /// Handle HTTP error responses
-  void _handleErrorResponse(http.Response response, String defaultMessage) {
+  /// Returns the error message that should be thrown
+  Future<String> _handleErrorResponse(String operation, http.Response response, String defaultMessage) async {
     final body = jsonDecode(response.body);
-    _eventController.add(
-      OperationFailure(body[ApiConfig.keys.common.message] ?? defaultMessage),
-    );
+    final message = body[ApiConfig.keys.common.message] ?? defaultMessage;
+    _eventController.add(OperationFailure(operation, message));
+    await Future.delayed(Duration.zero); // Ensure events are processed
+    return message;
   }
 
   /// Handle general errors
-  void _handleError(Object error) {
-    _eventController.add(OperationFailure(error.toString()));
+  /// Returns the error message that should be thrown
+  Future<String> _handleError(String operation, Object error) async {
+    String message = error.toString();
+    if (error is http.ClientException) {
+      message = ErrorMessages.operation.networkError;
+    } else if (error is TimeoutException) {
+      message = ErrorMessages.operation.timeoutError;
+    }
+    _eventController.add(OperationFailure(operation, message));
+    await Future.delayed(Duration.zero); // Ensure events are processed
+    return message;
   }
 
   @override
@@ -197,22 +312,23 @@ class UserDataSourceImpl implements UserDataSource {
 
   @override
   Future<String?> get cachedUserSecret async {
-    final credentials = await _isar.authCredentials.get(1);
+    final credentials = await _isar.collection<AuthCredentials>().get(1);
     return credentials?.userSecret;
   }
 
   @override
   Future<String?> get cachedAccessToken async {
-    final credentials = await _isar.authCredentials.get(1);
+    final credentials = await _isar.collection<AuthCredentials>().get(1);
     return credentials?.accessToken;
   }
 
   @override
   Future<DateTime?> get tokenExpiresAt async {
-    final credentials = await _isar.authCredentials.get(1);
+    final credentials = await _isar.collection<AuthCredentials>().get(1);
     return credentials?.tokenExpiresAt;
   }
 
+  @override
   void dispose() {
     _eventController.close();
   }

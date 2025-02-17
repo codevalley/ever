@@ -1,23 +1,27 @@
 /// Base class for all domain events
-abstract class DomainEvent {}
+abstract class DomainEvent {
+  const DomainEvent();
+}
 
-/// Event indicating an operation is in progress
+/// Event emitted when an operation starts
 class OperationInProgress extends DomainEvent {
   final String operation;
-  OperationInProgress(this.operation);
+
+  const OperationInProgress(this.operation);
 }
 
-/// Event indicating an operation succeeded
+/// Event emitted when an operation succeeds
 class OperationSuccess<T> extends DomainEvent {
   final String operation;
-  final T data;
-  OperationSuccess(this.operation, this.data);
+  final T? data;
+
+  const OperationSuccess(this.operation, [this.data]);
 }
 
-/// Event indicating an operation failed
+/// Event emitted when an operation fails
 class OperationFailure extends DomainEvent {
   final String operation;
-  final String message;
-  final dynamic error;
-  OperationFailure(this.operation, this.message, [this.error]);
+  final String error;
+
+  const OperationFailure(this.operation, this.error);
 }
