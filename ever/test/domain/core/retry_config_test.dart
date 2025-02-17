@@ -49,8 +49,8 @@ void main() {
     setUp(() {
       config = const RetryConfig(
         maxAttempts: 3,
-        initialDelay: Duration(milliseconds: 100),
-        maxDelay: Duration(milliseconds: 500),
+        initialDelay: Duration(milliseconds: 50),
+        maxDelay: Duration(milliseconds: 200),
         backoffFactor: 2.0,
       );
       attemptTimes = [];
@@ -65,27 +65,27 @@ void main() {
     }
 
     test('should succeed without retry on first attempt', () async {
-      final operation = () => Future.value('Success');
+      operation() => Future.value('Success');
       final result = await operation.withRetry(config);
       expect(result, 'Success');
     });
 
     test('should retry and succeed within max attempts', () async {
-      final operation = () => successAfterAttempts(2);
+      operation() => successAfterAttempts(2);
       final result = await operation.withRetry(config);
       expect(result, 'Success');
       expect(attemptTimes.length, 3);
 
       // Verify delays between attempts
-      final firstDelay = attemptTimes[1].difference(attemptTimes[0]);
-      final secondDelay = attemptTimes[2].difference(attemptTimes[1]);
+      final firstDelay = attemptTimes[1].difference(attemptTimes[0]).inMilliseconds;
+      final secondDelay = attemptTimes[2].difference(attemptTimes[1]).inMilliseconds;
       
-      expect(firstDelay.inMilliseconds, greaterThanOrEqualTo(100));
-      expect(secondDelay.inMilliseconds, greaterThanOrEqualTo(200));
+      expect(firstDelay, greaterThanOrEqualTo(45)); // Allow for small timing variations
+      expect(secondDelay, greaterThanOrEqualTo(90)); // Allow for small timing variations
     });
 
     test('should throw after max attempts', () async {
-      final operation = () => successAfterAttempts(3);
+      operation() => successAfterAttempts(3);
       expect(
         () => operation.withRetry(config),
         throwsA(isA<TimeoutException>()),
@@ -93,7 +93,7 @@ void main() {
     });
 
     test('should not retry on non-retryable errors', () async {
-      final operation = () => Future.error(Exception('400 Bad Request'));
+      operation() => Future.error(Exception('400 Bad Request'));
       expect(
         () => operation.withRetry(config),
         throwsA(isA<Exception>()),

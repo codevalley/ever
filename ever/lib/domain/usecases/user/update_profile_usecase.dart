@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import '../../core/events.dart';
-import '../../core/user_events.dart';
 import '../../entities/user.dart';
 import '../../repositories/user_repository.dart';
 import '../base_usecase.dart';

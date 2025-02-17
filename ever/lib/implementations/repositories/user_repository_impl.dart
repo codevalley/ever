@@ -6,7 +6,6 @@ import '../../domain/datasources/user_ds.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/user_repository.dart';
 import '../config/api_config.dart';
-import '../models/user_model.dart';
 
 /// Implementation of UserRepository that provides reactive streams
 class UserRepositoryImpl implements UserRepository {
@@ -19,39 +18,37 @@ class UserRepositoryImpl implements UserRepository {
   User? _currentUser;
 
   UserRepositoryImpl(this._dataSource) {
+    // Initialize state from data source
+    _dataSource.cachedUserSecret.then((secret) => _userSecret = secret);
+    
     // Listen to data source events and transform to domain events
     _dataSource.events.listen((event) {
-      if (event is OperationInProgress) {
-        _eventController.add(event);
-      } else if (event is OperationSuccess) {
-        if (event.data is UserModel) {
-          _handleUserModelSuccess(event.data as UserModel);
+      if (event is OperationSuccess) {
+        if (event.data is User) {
+          _handleUserSuccess(event.data as User);
         } else {
           _handleOperationFailure('Unexpected data type from data source');
         }
       } else if (event is OperationFailure) {
         _handleOperationFailure(event.error);
+      } else {
+        // Forward all other events
+        _eventController.add(event);
       }
     });
   }
 
-  void _handleUserModelSuccess(UserModel userModel) {
-    // Convert model to domain entity
-    final user = userModel.toDomain();
+  void _handleUserSuccess(User user) {
+    // Store user info
+    _currentUser = user;
     
     // Check which operation completed based on the data
-    if (userModel.userSecret != null) {
+    if (user.userSecret != null) {
       // Registration success
-      _userSecret = userModel.userSecret;
-      _eventController.add(UserRegistered(user, userModel.userSecret!));
-    } else if (userModel.accessToken != null) {
-      // Token acquisition success
-      _currentToken = userModel.accessToken;
-      _tokenExpiresAt = DateTime.now().add(ApiConfig.tokenConfig.tokenLifetime);
-      _eventController.add(TokenObtained(_currentToken!, _tokenExpiresAt!));
+      _userSecret = user.userSecret;
+      _eventController.add(UserRegistered(user, user.userSecret!));
     } else {
       // User info success
-      _currentUser = user;
       _eventController.add(CurrentUserRetrieved(user));
     }
   }
@@ -67,20 +64,24 @@ class UserRepositoryImpl implements UserRepository {
   @override
   Stream<DomainEvent> get events => _eventController.stream;
 
+  /// Initialize the repository state from data source
+  Future<void> initialize() async {
+    // Load cached user secret
+    _userSecret = await _dataSource.cachedUserSecret;
+    // Load cached token
+    _currentToken = await _dataSource.cachedAccessToken;
+    // Load token expiry
+    _tokenExpiresAt = await _dataSource.tokenExpiresAt;
+    // Initialize data source
+    await _dataSource.initialize();
+  }
+
   @override
   Stream<User> register(String username) async* {
-    _eventController.add(OperationInProgress(ApiConfig.operations.auth.register));
-    
     try {
-      await _dataSource.register(username);
-      // Wait for UserRegistered event which contains the user
-      await for (final event in events) {
-        if (event is UserRegistered) {
-          yield event.user;
-          break;
-        } else if (event is OperationFailure) {
-          throw Exception(event.error);
-        }
+      await for (final user in _dataSource.register(username)) {
+        _currentUser = user;
+        yield user;
       }
     } catch (e) {
       _handleOperationFailure(e.toString());
@@ -91,18 +92,11 @@ class UserRepositoryImpl implements UserRepository {
   @override
   Stream<String> obtainToken(String userSecret) async* {
     _userSecret = userSecret;
-    _eventController.add(OperationInProgress(ApiConfig.operations.auth.obtainToken));
-    
     try {
-      await _dataSource.obtainToken(userSecret);
-      // Wait for TokenObtained event
-      await for (final event in events) {
-        if (event is TokenObtained) {
-          yield event.accessToken;
-          break;
-        } else if (event is TokenAcquisitionFailed) {
-          throw Exception(event.message);
-        }
+      await for (final token in _dataSource.obtainToken(userSecret)) {
+        _currentToken = token;
+        _tokenExpiresAt = DateTime.now().add(ApiConfig.tokenConfig.tokenLifetime);
+        yield token;
       }
     } catch (e) {
       _handleOperationFailure(e.toString());
@@ -133,15 +127,9 @@ class UserRepositoryImpl implements UserRepository {
     _eventController.add(OperationInProgress(ApiConfig.operations.auth.getCurrentUser));
     
     try {
-      await _dataSource.getCurrentUser();
-      // Wait for CurrentUserRetrieved event
-      await for (final event in events) {
-        if (event is CurrentUserRetrieved) {
-          yield event.user;
-          break;
-        } else if (event is OperationFailure) {
-          throw Exception(event.error);
-        }
+      await for (final user in _dataSource.getCurrentUser()) {
+        _currentUser = user;
+        yield user;
       }
     } catch (e) {
       _handleOperationFailure(e.toString());
@@ -154,11 +142,12 @@ class UserRepositoryImpl implements UserRepository {
     _eventController.add(OperationInProgress(ApiConfig.operations.auth.signOut));
     
     try {
-      await _dataSource.signOut();
+      await _dataSource.signOut().drain<void>();
       _currentToken = null;
       _tokenExpiresAt = null;
       _currentUser = null;
       _eventController.add(UserLoggedOut());
+      yield null;
     } catch (e) {
       _handleOperationFailure(e.toString());
       rethrow;

@@ -16,15 +16,18 @@ graph TD
     DS --> |Events| R
     R --> |Events| UI
     
-    %% Additional Components
+    %% Resilience Patterns
     RC[RetryConfig] --> DS
-    EH[Error Handler] --> DS
-    CB[Circuit Breaker] -.-> DS
+    CB[CircuitBreaker] --> DS
     
-    classDef current fill:#f9f,stroke:#333,stroke-width:2px
+    %% Monitoring
+    M[Metrics] --> |Collects| DS
+    M --> |Aggregates| R
+    
+    classDef implemented fill:#9f9,stroke:#333,stroke-width:2px
     classDef planned fill:#bbf,stroke:#333,stroke-width:1px
-    class CB planned
-    class RC,EH current
+    class RC,CB implemented
+    class M planned
 ```
 
 ## Core Concepts
@@ -70,10 +73,14 @@ graph LR
         IP --> |Error| F[Failure]
     end
     
-    subgraph Retry Events
+    subgraph Resilience Events
         RE[Retry] --> RA[RetryAttempt]
         RA --> |Success| RS[RetrySuccess]
         RA --> |Max Attempts| RE[RetryExhausted]
+        
+        CB[CircuitBreaker] --> Open
+        CB --> HalfOpen
+        CB --> Closed
     end
     
     subgraph Monitoring
@@ -81,49 +88,15 @@ graph LR
         F --> M
         RS --> M
         RE --> M
+        CB --> M
     end
-```
-
-## Layered Architecture
-
-### 1. Data Sources
-
-The lowest layer, responsible for:
-- Raw data access (API, database)
-- Error handling and recovery
-- Event emission
-- Resource management
-
-```dart
-abstract class BaseDataSource<T> {
-  Stream<DomainEvent> get events;
-  Future<void> initialize();
-  void dispose();
-  // CRUD operations
-}
-```
-
-### 2. Repositories
-
-Middle layer that:
-- Transforms data between domain and data layers
-- Manages caching strategies
-- Handles complex operations
-- Provides domain-specific operations
-
-```dart
-class UserRepositoryImpl implements UserRepository {
-  final UserDataSource _dataSource;
-  final _eventController = StreamController<DomainEvent>.broadcast();
-  
-  Stream<DomainEvent> get events => _eventController.stream;
-  // Implementation
-}
 ```
 
 ## Resilience Patterns
 
 ### 1. Retry with Exponential Backoff
+
+The retry mechanism provides automatic retry of failed operations with exponential backoff:
 
 ```mermaid
 stateDiagram-v2
@@ -136,202 +109,223 @@ stateDiagram-v2
     Attempt3 --> Failed: Failure/Max Attempts
     Success --> [*]
     Failed --> [*]
-    
-    note right of Attempt1: First try
-    note right of Attempt2: Exponential backoff
-    note right of Attempt3: Max delay cap
 ```
 
-### 2. Error Recovery Flow
+#### Configuration
+
+```dart
+class RetryConfig {
+  final int maxAttempts;        // Maximum retry attempts
+  final Duration initialDelay;   // Initial delay before first retry
+  final Duration maxDelay;       // Maximum delay between retries
+  final double backoffFactor;    // Multiplier for each subsequent retry
+}
+```
+
+Default configuration:
+- `maxAttempts`: 3
+- `initialDelay`: 1 second
+- `maxDelay`: 10 seconds
+- `backoffFactor`: 2.0
+
+#### Events
+
+The retry mechanism emits the following events:
+- `RetryAttempt`: When a retry is about to be attempted
+- `RetrySuccess`: When an operation succeeds after retries
+- `RetryExhausted`: When all retry attempts are exhausted
+
+### 2. Circuit Breaker Pattern
+
+The circuit breaker prevents cascade failures and provides automatic service degradation:
 
 ```mermaid
-flowchart TD
-    E[Error Occurs] --> C{Classify Error}
-    C -->|Transient| R[Retry Logic]
-    C -->|Permanent| F[Fail Fast]
-    C -->|System| S[System Recovery]
-    
-    R --> RC{Retry Count}
-    RC -->|< Max| D[Delay]
-    RC -->|>= Max| EX[Exhausted]
-    
-    D --> NA[Next Attempt]
-    NA --> C
-    
-    F --> EH[Error Handler]
-    EX --> EH
-    S --> EH
-    
-    EH --> EV[Event Emission]
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open: Failure Threshold Reached
+    Open --> HalfOpen: Reset Timeout Elapsed
+    HalfOpen --> Closed: Successful Trial Calls
+    HalfOpen --> Open: Any Failure
+```
+
+#### States
+
+1. **Closed** (Normal Operation):
+   - All calls proceed normally
+   - Failures are counted
+   - Transitions to Open if failure threshold is reached
+
+2. **Open** (Service Degraded):
+   - All calls are rejected immediately
+   - Automatic transition to Half-Open after reset timeout
+   - Prevents cascade failures
+
+3. **Half-Open** (Recovery Mode):
+   - Limited number of trial calls allowed
+   - Success transitions to Closed after max attempts
+   - Any failure transitions back to Open
+   - Prevents premature recovery
+
+#### Configuration
+
+```dart
+class CircuitBreakerConfig {
+  final int failureThreshold;     // Failures before opening
+  final Duration resetTimeout;     // Time before recovery attempt
+  final int halfOpenMaxAttempts;  // Trial calls allowed
+}
+```
+
+Default configuration:
+- `failureThreshold`: 5
+- `resetTimeout`: 30 seconds
+- `halfOpenMaxAttempts`: 3
+
+#### Events
+
+The circuit breaker emits the following events:
+- `transition_to_open`: Service is degraded
+- `transition_to_half_open`: Recovery is being attempted
+- `transition_to_closed`: Service is restored
+- `operation_rejected`: Call was rejected
+
+## Implementation Examples
+
+### 1. Using Retry Mechanism
+
+```dart
+// Configure retry behavior
+final retryConfig = RetryConfig(
+  maxAttempts: 3,
+  initialDelay: Duration(seconds: 1),
+  maxDelay: Duration(seconds: 10),
+  backoffFactor: 2.0,
+);
+
+// Execute with retry
+Stream<T> _executeWithRetry<T>(
+  String operation,
+  Future<T> Function() apiCall,
+) async* {
+  int attempts = 0;
+  while (attempts < retryConfig.maxAttempts) {
+    try {
+      attempts++;
+      final result = await apiCall();
+      yield result;
+      return;
+    } catch (error) {
+      if (!_isRetryable(error) || 
+          attempts >= retryConfig.maxAttempts) {
+        rethrow;
+      }
+      final delay = retryConfig.getDelayForAttempt(attempts);
+      await Future.delayed(delay);
+    }
+  }
+}
+```
+
+### 2. Using Circuit Breaker
+
+```dart
+// Configure circuit breaker
+final circuitBreaker = CircuitBreaker(
+  CircuitBreakerConfig(
+    failureThreshold: 5,
+    resetTimeout: Duration(seconds: 30),
+    halfOpenMaxAttempts: 3,
+  )
+);
+
+// Execute through circuit breaker
+Future<T> execute<T>(Future<T> Function() operation) async {
+  // Circuit breaker will:
+  // 1. Track failures in closed state
+  // 2. Reject calls in open state
+  // 3. Allow limited calls in half-open state
+  // 4. Handle state transitions automatically
+  return await circuitBreaker.execute(operation);
+}
 ```
 
 ## Best Practices
 
-### 1. Error Handling
+### 1. Retry Configuration
 
-1. **Classify Errors**:
-   - Transient (network issues, timeouts)
-   - Permanent (validation errors, not found)
-   - System errors (configuration, initialization)
+1. **Identify Retryable Operations**:
+   - Network timeouts
+   - Rate limiting responses
+   - Temporary service unavailability
+   - Connection errors
 
-2. **Error Recovery**:
-   - Retry transient errors
-   - Fail fast on permanent errors
-   - Proper error transformation between layers
+2. **Configure Appropriate Delays**:
+   - Start with small initial delays (1s)
+   - Use reasonable backoff factors (2.0)
+   - Cap maximum delays (10s)
+   - Consider operation context
 
-### 2. Resource Management
+3. **Set Reasonable Attempt Limits**:
+   - 3-5 attempts typically sufficient
+   - Consider operation criticality
+   - Account for total time impact
 
-1. **Initialization**:
-   ```dart
-   Future<void> initialize() async {
-     // Setup resources
-     // Load cached data
-     // Initialize connections
-   }
-   ```
+### 2. Circuit Breaker Configuration
 
-2. **Cleanup**:
-   ```dart
-   void dispose() {
-     _eventController.close();
-     // Release other resources
-   }
-   ```
+1. **Failure Thresholds**:
+   - Set based on traffic patterns
+   - Consider error impact
+   - Account for normal error rates
+   - Start conservative (5-10)
 
-### 3. Testing
+2. **Reset Timeouts**:
+   - Match service recovery patterns
+   - Consider dependencies
+   - Start with 30-60 seconds
+   - Adjust based on monitoring
 
-1. **Unit Tests**:
-   - Test retry logic
-   - Verify event emission
-   - Check error handling
+3. **Half-Open Attempts**:
+   - Limited trial calls (2-3)
+   - Prevent premature recovery
+   - Consider service capacity
+   - Monitor success rates
 
-2. **Integration Tests**:
-   - End-to-end flows
-   - Error scenarios
-   - Recovery behavior
+### 3. Monitoring
 
-## References
-
-1. Reactive Programming:
-   - [ReactiveX](http://reactivex.io/)
-   - [Reactive Streams](https://www.reactive-streams.org/)
-   - [Reactive Manifesto](https://www.reactivemanifesto.org/)
-
-2. Resilience Patterns:
-   - [Martin Fowler - Circuit Breaker](https://martinfowler.com/bliki/CircuitBreaker.html)
-   - [Microsoft - Retry Pattern](https://docs.microsoft.com/en-us/azure/architecture/patterns/retry)
-   - [Implementing Retry Pattern in Dart](https://medium.com/flutter-community/implementing-retry-pattern-in-dart-flutter-84af66cdb56f)
-
-3. Event-Driven Architecture:
-   - [Martin Fowler - Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html)
-   - [CQRS Pattern](https://docs.microsoft.com/en-us/azure/architecture/patterns/cqrs)
-
-## Implementation Examples
-
-### Complete Retry Implementation
-
-```dart
-/// Configuration
-class RetryConfig {
-  final int maxAttempts;
-  final Duration initialDelay;
-  final Duration maxDelay;
-  final double backoffFactor;
-
-  const RetryConfig({
-    required this.maxAttempts,
-    required this.initialDelay,
-    required this.maxDelay,
-    required this.backoffFactor,
-  });
-
-  Duration getDelayForAttempt(int attempt) {
-    if (attempt <= 0) return Duration.zero;
-    final exponentialDelay = initialDelay * (backoffFactor * (attempt - 1));
-    return exponentialDelay > maxDelay ? maxDelay : exponentialDelay;
-  }
-}
-
-/// Usage in DataSource
-class UserDataSourceImpl implements UserDataSource {
-  final RetryConfig _retryConfig;
-  
-  Future<T> _executeWithRetry<T>(
-    String operation,
-    Future<T> Function() apiCall,
-  ) async {
-    int attempts = 0;
-    while (true) {
-      try {
-        attempts++;
-        return await apiCall();
-      } catch (error) {
-        if (!_shouldRetry(error) || attempts >= _retryConfig.maxAttempts) {
-          rethrow;
-        }
-        final delay = _retryConfig.getDelayForAttempt(attempts);
-        await Future.delayed(delay);
-      }
-    }
-  }
-}
-```
-
-### Event Handling Example
-
-```dart
-class UserRepositoryImpl implements UserRepository {
-  final _eventController = StreamController<DomainEvent>.broadcast();
-  
-  Stream<User> register(String username) async* {
-    _eventController.add(OperationInProgress('register'));
-    try {
-      final user = await _dataSource.register(username).first;
-      _eventController.add(OperationSuccess('register', user));
-      yield user;
-    } catch (e) {
-      _eventController.add(OperationFailure('register', e));
-      rethrow;
-    }
-  }
-}
-```
-
-## Monitoring & Observability
-
-The architecture provides rich telemetry through events:
-
-1. **Operation Metrics**:
-   - Success/failure rates
-   - Retry attempts
-   - Operation durations
+1. **Key Metrics**:
+   - Retry attempts/success rates
+   - Circuit breaker state changes
+   - Operation latencies
    - Error distributions
 
-2. **Health Monitoring**:
-   - Resource usage
-   - Connection states
-   - Cache hit rates
-   - Error patterns
+2. **Alerts**:
+   - Service degradation
+   - High retry rates
+   - Circuit breaker trips
+   - Recovery failures
 
-3. **Debugging**:
-   - Operation traces
-   - Error contexts
-   - State transitions
-   - Recovery attempts
+3. **Dashboards**:
+   - Real-time state visualization
+   - Historical patterns
+   - Error trending
+   - Performance impact
 
 ## Future Improvements
 
-1. **Circuit Breaker Pattern**:
-   - Prevent cascade failures
-   - Automatic service degradation
-   - Self-healing capabilities
+1. **Enhanced Monitoring**:
+   - Centralized metrics collection
+   - Real-time dashboards
+   - Automated alerting
+   - Pattern analysis
 
-2. **Caching Strategies**:
-   - Improved cache invalidation
-   - Cache warming
-   - Partial updates
+2. **Advanced Patterns**:
+   - Bulkhead isolation
+   - Rate limiting
+   - Request caching
+   - Load shedding
 
-3. **Metrics Collection**:
-   - Centralized monitoring
-   - Performance analytics
-   - Error trending 
+3. **Configuration Management**:
+   - Dynamic thresholds
+   - Pattern recognition
+   - Automated tuning
+   - A/B testing support 

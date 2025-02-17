@@ -1,11 +1,11 @@
-import '../entities/user.dart';
 import 'events.dart';
 
 /// Event when user successfully registers
 class UserRegistered extends DomainEvent {
-  final User user;
+  final dynamic user;
   final String userSecret;
-  UserRegistered(this.user, this.userSecret);
+
+  const UserRegistered(this.user, this.userSecret);
 }
 
 /// Event when user registration fails
@@ -16,9 +16,10 @@ class RegistrationFailed extends DomainEvent {
 
 /// Event when token is obtained
 class TokenObtained extends DomainEvent {
-  final String accessToken;
+  final String token;
   final DateTime expiresAt;
-  TokenObtained(this.accessToken, this.expiresAt);
+
+  const TokenObtained(this.token, this.expiresAt);
 }
 
 /// Event when token acquisition fails
@@ -45,15 +46,19 @@ class TokenRefreshed extends DomainEvent {
 
 /// Event when token refresh fails
 class TokenRefreshFailed extends DomainEvent {
-  final String message;
-  TokenRefreshFailed(this.message);
+  final String error;
+
+  const TokenRefreshFailed(this.error);
 }
 
 /// Event when current user info is retrieved
 class CurrentUserRetrieved extends DomainEvent {
-  final User user;
-  CurrentUserRetrieved(this.user);
+  final dynamic user;
+
+  const CurrentUserRetrieved(this.user);
 }
 
 /// Event when user logs out
-class UserLoggedOut extends DomainEvent {}
+class UserLoggedOut extends DomainEvent {
+  const UserLoggedOut();
+}

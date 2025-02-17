@@ -21,6 +21,7 @@ abstract class UserDataSource extends BaseDataSource<User> {
 
   /// Initialize the data source
   /// Loads cached credentials and sets up token refresh handling
+  @override
   Future<void> initialize();
 
   /// Sign out user and clear cached credentials

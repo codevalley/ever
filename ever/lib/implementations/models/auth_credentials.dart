@@ -1,5 +1,7 @@
 import 'package:isar/isar.dart';
 
+part 'auth_credentials.g.dart';
+
 /// Model for storing authentication credentials
 @Collection()
 class AuthCredentials {

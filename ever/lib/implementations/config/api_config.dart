@@ -151,6 +151,9 @@ class _AuthOperations {
   /// Sign out operation name
   String get signOut => 'auth_sign_out';
 
+  /// Refresh token operation name
+  String get refreshToken => 'auth_refresh_token';
+
   /// Generic auth operation name
   String get generic => 'auth_operation';
 }

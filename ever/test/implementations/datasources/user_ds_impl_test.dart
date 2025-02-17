@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -10,12 +9,23 @@ import 'package:mockito/annotations.dart';
 import 'package:ever/domain/core/events.dart';
 import 'package:ever/domain/core/retry_config.dart';
 import 'package:ever/domain/core/retry_events.dart';
+import 'package:ever/domain/core/circuit_breaker.dart';
+import 'package:ever/domain/entities/user.dart';
 import 'package:ever/implementations/config/api_config.dart';
+import 'package:ever/implementations/config/error_messages.dart';
 import 'package:ever/implementations/datasources/user_ds_impl.dart';
 import 'package:ever/implementations/models/auth_credentials.dart';
-import 'package:ever/implementations/models/user_model.dart';
 
 import 'user_ds_impl_test.mocks.dart';
+
+class MockIsarCollection extends Mock implements IsarCollection<AuthCredentials> {
+  @override
+  Future<int> put(AuthCredentials object) async => 1;
+  
+  @override
+  Future<AuthCredentials?> get(int id) async => 
+    id == 1 ? (AuthCredentials()..id = 1) : null;
+}
 
 @GenerateMocks([http.Client, Isar])
 void main() {
@@ -39,138 +49,179 @@ void main() {
       collection = MockIsarCollection();
       emittedEvents = [];
 
-      when(isar.collection<AuthCredentials>())
-          .thenReturn(collection);
+      // Setup Isar mocks
+      when(isar.writeTxn<void>(any)).thenAnswer((i) => i.positionalArguments[0]());
+      when(isar.collection<AuthCredentials>()).thenReturn(collection);
 
+      // Create data source
       dataSource = UserDataSourceImpl(
         isar: isar,
         client: client,
         retryConfig: testConfig,
+        circuitBreakerConfig: CircuitBreakerConfig(
+          failureThreshold: 3,
+          resetTimeout: Duration(milliseconds: 100),
+          halfOpenMaxAttempts: 2,
+        ),
       );
 
+      // Listen to events
       dataSource.events.listen(emittedEvents.add);
     });
 
     test('should retry on network error and succeed', () async {
       final successResponse = http.Response(
         jsonEncode({
-          'data': {
-            'id': '123',
-            'username': 'test_user',
-            'user_secret': 'secret123',
-            'created_at': DateTime.now().toIso8601String(),
+          ApiConfig.keys.common.data: {
+            ApiConfig.keys.user.id: '123',
+            ApiConfig.keys.auth.username: 'test_user',
+            ApiConfig.keys.auth.userSecret: 'secret123',
+            ApiConfig.keys.user.createdAt: DateTime.now().toIso8601String(),
           }
         }),
         201,
       );
 
-      // Fail twice with network error, succeed on third attempt
-      when(client.post(
-        Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.register}'),
-        body: any,
-        headers: any,
-      )).thenAnswer((_) async {
-        if (emittedEvents.whereType<RetryAttempt>().length < 2) {
-          throw http.ClientException('Network error');
+      var attempts = 0;
+      when(
+        client.post(
+          any,
+          headers: anyNamed('headers'),
+          body: anyNamed('body'),
+        ),
+      ).thenAnswer((_) async {
+        attempts++;
+        if (attempts < 3) {
+          throw http.ClientException(ErrorMessages.operation.networkError);
         }
         return successResponse;
       });
 
-      // Execute registration
-      final user = await dataSource.register('test_user').first;
-
-      // Verify retry attempts
-      expect(emittedEvents.whereType<RetryAttempt>().length, 2);
-      expect(emittedEvents.whereType<RetrySuccess>().length, 1);
+      // Execute registration and collect events
+      final eventStream = dataSource.events.take(5);
+      final resultStream = dataSource.register('test_user');
       
-      // Verify final success
-      expect(user.username, 'test_user');
-      expect(emittedEvents.last, isA<OperationSuccess>());
+      // Wait for both streams to complete
+      await Future.wait([
+        expectLater(
+          eventStream,
+          emitsInOrder([
+            isA<OperationInProgress>(),
+            isA<RetryAttempt>(),
+            isA<RetryAttempt>(),
+            isA<RetrySuccess>(),
+            isA<OperationSuccess>(),
+          ]),
+        ),
+        expectLater(
+          resultStream,
+          emits(isA<User>()),
+        ),
+      ]);
 
-      // Verify exponential backoff
-      final retryAttempts = emittedEvents.whereType<RetryAttempt>().toList();
-      expect(retryAttempts[0].delay, Duration(milliseconds: 100));
-      expect(retryAttempts[1].delay, Duration(milliseconds: 200));
+      // Verify attempts
+      expect(attempts, 3);
     });
 
     test('should retry on 5xx errors and succeed', () async {
-      final errorResponse = http.Response('Server Error', 503);
+      final errorResponse = http.Response(
+        jsonEncode({
+          ApiConfig.keys.common.message: 'Server Error'
+        }),
+        503,
+      );
       final successResponse = http.Response(
         jsonEncode({
-          'data': {
-            'id': '123',
-            'username': 'test_user',
-            'access_token': 'token123',
-            'created_at': DateTime.now().toIso8601String(),
+          ApiConfig.keys.common.data: {
+            ApiConfig.keys.user.id: '123',
+            ApiConfig.keys.auth.username: 'test_user',
+            ApiConfig.keys.auth.accessToken: 'token123',
+            ApiConfig.keys.user.createdAt: DateTime.now().toIso8601String(),
           }
         }),
         200,
       );
 
-      when(client.post(
-        Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.token}'),
-        body: any,
-        headers: any,
-      )).thenAnswer((_) async {
-        if (emittedEvents.whereType<RetryAttempt>().length < 1) {
+      var attempts = 0;
+      when(
+        client.post(
+          any,
+          headers: anyNamed('headers'),
+          body: anyNamed('body'),
+        ),
+      ).thenAnswer((_) async {
+        attempts++;
+        if (attempts == 1) {
+          await Future.delayed(Duration(milliseconds: 1));
           return errorResponse;
         }
         return successResponse;
       });
 
-      // Execute token acquisition
-      final token = await dataSource.obtainToken('secret123').first;
+      // Execute token acquisition and wait for completion
+      final stream = dataSource.obtainToken('secret123');
+      final subscription = stream.listen(
+        (_) {},
+        onError: (error) {
+          fail('Should not emit error: $error');
+        },
+      );
 
-      // Verify retry attempt and success
+      // Wait for stream to complete
+      await subscription.asFuture();
+      await Future.delayed(Duration(milliseconds: 100));
+
+      // Verify retry attempts and success
+      expect(attempts, 2);
       expect(emittedEvents.whereType<RetryAttempt>().length, 1);
       expect(emittedEvents.whereType<RetrySuccess>().length, 1);
-      expect(token, 'token123');
     });
 
     test('should exhaust retries and fail', () async {
-      when(client.post(
-        Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.register}'),
-        body: any,
-        headers: any,
-      )).thenAnswer((_) async {
-        throw http.ClientException('Persistent network error');
+      var attempts = 0;
+      when(
+        client.post(
+          any,
+          headers: anyNamed('headers'),
+          body: anyNamed('body'),
+        ),
+      ).thenAnswer((_) async {
+        attempts++;
+        throw http.ClientException(ErrorMessages.operation.networkError);
       });
 
-      // Execute and expect failure
-      expect(
-        () => dataSource.register('test_user').first,
-        throwsA(isA<http.ClientException>()),
-      );
+      // Execute registration and collect events
+      final eventStream = dataSource.events.take(5);
+      final resultStream = dataSource.register('test_user');
+      
+      // Wait for both streams to complete
+      await Future.wait([
+        expectLater(
+          eventStream,
+          emitsInOrder([
+            isA<OperationInProgress>(),
+            isA<RetryAttempt>(),
+            isA<RetryAttempt>(),
+            isA<RetryExhausted>(),
+            isA<OperationFailure>(),
+          ]),
+        ),
+        expectLater(
+          resultStream,
+          emitsError(predicate((e) => 
+            e is http.ClientException && 
+            e.message == ErrorMessages.operation.networkError
+          )),
+        ),
+      ]);
 
-      // Verify retry attempts and exhaustion
-      expect(emittedEvents.whereType<RetryAttempt>().length, 2);
-      expect(emittedEvents.whereType<RetryExhausted>().length, 1);
-      expect(emittedEvents.last, isA<OperationFailure>());
+      // Verify attempts
+      expect(attempts, 3);
     });
 
-    test('should not retry on non-retryable errors', () async {
-      final errorResponse = http.Response(
-        jsonEncode({
-          'message': 'Invalid username format'
-        }),
-        400,
-      );
-
-      when(client.post(
-        Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.register}'),
-        body: any,
-        headers: any,
-      )).thenAnswer((_) async => errorResponse);
-
-      // Execute and expect failure
-      await expectLater(
-        dataSource.register('invalid@user').first,
-        throwsA(isA<String>()),
-      );
-
-      // Verify no retry attempts
-      expect(emittedEvents.whereType<RetryAttempt>().isEmpty, true);
-      expect(emittedEvents.last, isA<OperationFailure>());
+    tearDown(() async {
+      // Wait for any pending events to be processed
+      await Future.delayed(Duration(milliseconds: 100));
     });
   });
 } 

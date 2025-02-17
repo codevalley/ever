@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'dart:math';
 
 /// Configuration for retry mechanism with exponential backoff
 class RetryConfig {
@@ -33,20 +36,26 @@ class RetryConfig {
   Duration getDelayForAttempt(int attempt) {
     if (attempt <= 0) return Duration.zero;
     
-    final exponentialDelay = initialDelay * (backoffFactor * (attempt - 1));
+    // Calculate exponential delay: initialDelay * (backoffFactor ^ (attempt - 1))
+    final multiplier = pow(backoffFactor, attempt - 1).toDouble();
+    final exponentialDelay = initialDelay * multiplier;
     return exponentialDelay > maxDelay ? maxDelay : exponentialDelay;
   }
 
   /// Check if an error should trigger a retry
   bool shouldRetry(Object error) {
-    // Retry on network errors and server errors (5xx)
-    return error is TimeoutException ||
-           error.toString().contains('NetworkError') ||
-           error.toString().contains('SocketException') ||
-           error.toString().contains('500') ||
-           error.toString().contains('502') ||
-           error.toString().contains('503') ||
-           error.toString().contains('504');
+    if (error is TimeoutException) return true;
+    if (error is http.ClientException) return true;
+    if (error is SocketException) return true;
+    final errorString = error.toString().toLowerCase();
+    return errorString.contains('500') ||
+           errorString.contains('502') ||
+           errorString.contains('503') ||
+           errorString.contains('504') ||
+           errorString.contains('network error') ||
+           errorString.contains('networkerror') ||
+           errorString.contains('socketexception') ||
+           errorString.contains('failed to connect');
   }
 }
 
