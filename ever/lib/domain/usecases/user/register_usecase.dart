@@ -38,45 +38,44 @@ class RegisterParams {
 /// 2. Calls repository to register user
 /// 3. Emits appropriate events:
 ///    - [OperationInProgress]: When registration starts
-///    - [UserRegistered]: When registration succeeds
-///    - [RegistrationFailed]: When validation or registration fails
+///    - [UserRegistered]: When registration succeeds with user info and secret
+///    - [OperationFailure]: When validation or registration fails
 class RegisterUseCase extends BaseUseCase<RegisterParams> {
   final UserRepository _repository;
   final _eventController = StreamController<DomainEvent>.broadcast();
+  StreamSubscription? _repositorySubscription;
 
   RegisterUseCase(this._repository) {
-    // Listen to repository events and transform them if needed
-    _repository.events.listen((event) {
-      if (event is UserRegistered) {
-        // Repository provides domain User object, forward as is
-        _eventController.add(event);
-      } else if (event is OperationFailure) {
-        // Transform generic failure to registration-specific failure
-        _eventController.add(RegistrationFailed(event.error));
-      } else if (event is OperationInProgress) {
-        _eventController.add(event);
-      }
-    });
+    // Listen to repository events and forward them
+    _repositorySubscription = _repository.events.listen(_eventController.add);
   }
 
   @override
   Stream<DomainEvent> get events => _eventController.stream;
 
   @override
-  void execute(RegisterParams params) {
+  void execute(RegisterParams params) async {
     // Validate input parameters
     final validationError = params.validate();
     if (validationError != null) {
-      _eventController.add(RegistrationFailed(validationError));
+      _eventController.add(OperationFailure(
+        'register',
+        validationError,
+      ));
       return;
     }
 
-    // Proceed with registration
-    _repository.register(params.username.trim());
+    try {
+      // We don't need the user value since repository emits events
+      await _repository.register(params.username.trim()).drain<void>();
+    } catch (e) {
+      // Repository will emit appropriate failure events
+    }
   }
 
   @override
   void dispose() {
+    _repositorySubscription?.cancel();
     _eventController.close();
   }
 }

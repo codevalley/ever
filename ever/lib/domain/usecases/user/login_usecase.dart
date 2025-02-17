@@ -69,9 +69,8 @@ class ObtainTokenUseCase extends BaseUseCase<ObtainTokenParams> {
     }
 
     try {
-      await for (final token in _repository.obtainToken(params.userSecret)) {
-        // Token obtained successfully, repository will emit appropriate events
-      }
+      // We don't need the token value since repository emits events
+      await _repository.obtainToken(params.userSecret).drain<void>();
     } catch (e) {
       // Repository will emit appropriate failure events
     }

@@ -258,67 +258,51 @@ lib/
       - [ ] Error handling
 
 4. **UseCase Review & Testing** 🔄
-   - [ ] User Usecases Review
-      - [ ] Login (ObtainToken) UseCase
-         - [ ] Update error handling with new repository events
-         - [ ] Add resilience pattern integration
-         - [ ] Add comprehensive unit tests
-         - [ ] Add integration tests with repository
-      - [ ] Register UseCase
-         - [ ] Update validation logic
-         - [ ] Add resilience pattern integration
-         - [ ] Add comprehensive unit tests
-         - [ ] Add integration tests
-      - [ ] Reset Password UseCase
-         - [ ] Add proper event handling
-         - [ ] Add resilience pattern integration
-         - [ ] Add comprehensive unit tests
-      - [ ] Sign Out UseCase
-         - [ ] Update token cleanup
-         - [ ] Add comprehensive unit tests
+   - [x] User Usecases Review
+      - [x] Login (ObtainToken) UseCase
+         - [x] Move resilience patterns to repository layer
+         - [x] Update error handling with domain events
+         - [x] Add comprehensive unit tests
+         - [x] Add integration tests with repository
+      - [x] Register UseCase
+         - [x] Review and update implementation
+         - [x] Add comprehensive unit tests
+         - [x] Add integration tests
+      - [x] Sign Out UseCase
+         - [x] Review and update implementation
+         - [x] Add comprehensive unit tests
       - [ ] Update Profile UseCase
-         - [ ] Add validation logic
-         - [ ] Add resilience pattern integration
+         - [ ] Review and update implementation
          - [ ] Add comprehensive unit tests
       - [ ] Refresh Token UseCase
-         - [ ] Update with new circuit breaker pattern
-         - [ ] Add exponential backoff retry
+         - [ ] Review and update implementation
          - [ ] Add comprehensive unit tests
       - [ ] Get Current User UseCase
-         - [ ] Add caching mechanism
+         - [ ] Review and update implementation
          - [ ] Add comprehensive unit tests
-   - [ ] Testing Infrastructure
-      - [ ] Create mock repositories for testing
-      - [ ] Add test utilities for event assertions
-      - [ ] Add test coverage for error scenarios
-      - [ ] Add test coverage for retry scenarios
-   - [ ] Documentation
-      - [ ] Document each usecase's responsibility
-      - [ ] Document event flow and error handling
-      - [ ] Add usage examples
-      - [ ] Document testing patterns
 
-### Current Focus: UseCase Review
+### Current Focus: Get Current User UseCase Review
 1. **Immediate Tasks**
-   - [ ] Review and update each usecase implementation
-   - [ ] Ensure proper event handling
-   - [ ] Add resilience patterns
-   - [ ] Write comprehensive tests
+   - [ ] Review GetCurrentUserUseCase implementation
+   - [ ] Ensure clean architecture principles:
+      - [ ] Move infrastructure concerns to repository
+      - [ ] Keep domain logic in usecase
+      - [ ] Use domain events for communication
+   - [ ] Add comprehensive tests
+   - [ ] Add integration tests
 
 2. **Design Decisions**
-   - Event-driven architecture for all usecases
-   - Proper error propagation and handling
-   - Integration with circuit breaker and retry patterns
-   - Clear separation of validation and business logic
-   - Comprehensive test coverage
+   - Keep usecases focused on domain logic
+   - Infrastructure concerns (retry, circuit breaker) in repository layer
+   - Clear event-based communication between layers
+   - Strong input validation in usecases
+   - Comprehensive error handling at each layer
 
 3. **Quality Checks**
-   - [ ] All usecases properly handle errors
-   - [ ] All usecases have proper validation
-   - [ ] All usecases integrate with resilience patterns
-   - [ ] Test coverage > 90% for usecases
+   - [ ] Infrastructure concerns isolated to repository layer
+   - [ ] Test coverage > 90% for usecase
    - [ ] Proper event transformation in all cases
-   - [ ] Clear documentation for each usecase
+   - [ ] Clear documentation for usecase
 
 ## Technical Debt Considerations
 - [x] Proper error handling
