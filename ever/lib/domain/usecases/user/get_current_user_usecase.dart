@@ -1,14 +1,14 @@
 import 'dart:async';
 
 import '../../core/events.dart';
+import '../../core/user_events.dart';
 import '../../repositories/user_repository.dart';
 import '../base_usecase.dart';
 
 /// Use case for retrieving the current authenticated user
 /// 
 /// Events:
-/// - [UserRetrieved]: When user is successfully retrieved
-/// - [UserNotFound]: When no authenticated user exists
+/// - [CurrentUserRetrieved]: When user is successfully retrieved
 /// - [OperationFailure]: When retrieval fails for other reasons
 /// - [OperationInProgress]: When retrieval is in progress
 class GetCurrentUserUseCase extends NoParamsUseCase {
@@ -21,16 +21,18 @@ class GetCurrentUserUseCase extends NoParamsUseCase {
   GetCurrentUserUseCase(this._repository) {
     // Listen to repository events and transform them if needed
     _repository.events.listen((event) {
-      if (event is UserRetrieved) {
+      if (event is CurrentUserRetrieved) {
         _isRetrieving = false;
         _eventController.add(event);
       } else if (event is OperationFailure) {
         _isRetrieving = false;
         // Transform generic failure to user-specific failure if needed
-        if (event.error.contains('not found') || 
-            event.error.contains('no user') ||
-            event.error.contains('unauthorized')) {
-          _eventController.add(UserNotFound());
+        final error = event.error.toLowerCase();
+        if (error.contains('not found') || 
+            error.contains('no user') ||
+            error.contains('unauthorized')) {
+          // If user is not found or unauthorized, consider it a normal case
+          _eventController.add(const CurrentUserRetrieved(null));
         } else {
           _eventController.add(event);
         }

@@ -257,7 +257,7 @@ lib/
       - [ ] Usage examples
       - [ ] Error handling
 
-4. **UseCase Review & Testing** 🔄
+4. **UseCase Review & Testing** ✅
    - [x] User Usecases Review
       - [x] Login (ObtainToken) UseCase
          - [x] Move resilience patterns to repository layer
@@ -272,27 +272,25 @@ lib/
          - [x] Review and update implementation
          - [x] Add comprehensive unit tests
          - [x] Add integration tests
-      - [ ] Update Profile UseCase
-         - [ ] Review and update implementation
-         - [ ] Add comprehensive unit tests
       - [x] Refresh Token UseCase
          - [x] Review and update implementation
          - [x] Add comprehensive unit tests
          - [x] Add token expiration monitoring
          - [x] Add automatic refresh mechanism
-      - [ ] Get Current User UseCase
-         - [ ] Review and update implementation
-         - [ ] Add comprehensive unit tests
+      - [x] Get Current User UseCase
+         - [x] Review and update implementation
+         - [x] Add comprehensive unit tests
+         - [x] Add integration tests
+      - [-] Update Profile UseCase
+         - [-] Remove implementation as endpoint not available in API
+         - [-] Document removal in technical debt
 
-### Current Focus: Get Current User UseCase Review
+### Current Focus: Note Feature Implementation
 1. **Immediate Tasks**
-   - [ ] Review GetCurrentUserUseCase implementation
-   - [ ] Ensure clean architecture principles:
-      - [ ] Move infrastructure concerns to repository
-      - [ ] Keep domain logic in usecase
-      - [ ] Use domain events for communication
-   - [ ] Add comprehensive tests
-   - [ ] Add integration tests
+   - [ ] Create note-specific events
+   - [ ] Implement note data source interface
+   - [ ] Add resilience patterns to note repository
+   - [ ] Implement note usecases with proper error handling
 
 2. **Design Decisions**
    - Keep usecases focused on domain logic
@@ -303,9 +301,9 @@ lib/
 
 3. **Quality Checks**
    - [ ] Infrastructure concerns isolated to repository layer
-   - [ ] Test coverage > 90% for usecase
+   - [ ] Test coverage > 90% for all components
    - [ ] Proper event transformation in all cases
-   - [ ] Clear documentation for usecase
+   - [ ] Clear documentation for all components
 
 ## Technical Debt Considerations
 - [x] Proper error handling
@@ -316,11 +314,13 @@ lib/
 - [ ] Performance optimization
 - [x] Event monitoring
 - [ ] Metrics collection
+- [ ] Add update profile functionality when API supports it
 
 ## Next Steps
-1. Implement Note feature with resilience patterns
-2. Add metrics collection system
-3. Complete API documentation
+1. [x] Complete User Management feature
+2. [ ] Implement Note feature with resilience patterns
+3. [ ] Add metrics collection system
+4. [ ] Complete API documentation
 
 ## Implementation Priority
 1. [x] User Management (Authentication is prerequisite)
