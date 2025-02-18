@@ -291,78 +291,103 @@ class UserDataSourceImpl implements UserDataSource {
   Stream<User> getCurrentUser() async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.auth.getCurrentUser));
     print('🔍 [Debug] Starting getCurrentUser flow');
-    print('🔍 [Debug] Current token available: ${await cachedAccessToken != null}');
 
     try {
-      final response = await executeWithRefresh(
-        () async {
-          final token = await cachedAccessToken;
-          if (token == null) {
-            print('❌ [Error] No access token available');
-            throw Exception('No access token available');
-          }
+      final token = await cachedAccessToken;
+      if (token == null) {
+        print('❌ [Error] No access token available');
+        throw Exception('No access token available');
+      }
 
-          final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.me}');
-          print('🌐 [API Request] GET $url');
-          print('📤 [Request Headers] Authorization: Bearer ${token.substring(0, 10)}...');
-          
-          print('🔍 [Debug] Sending request to /auth/me endpoint');
-          final response = await client.get(
-            url,
-            headers: ApiConfig.headers.withAuth(token),
-          );
-          print('🔍 [Debug] Received response from /auth/me endpoint');
+      final userSecret = await cachedUserSecret;
+      if (userSecret == null) {
+        print('❌ [Error] No user secret available for token refresh');
+        throw Exception('No user secret available for token refresh');
+      }
 
-          print('📥 [API Response] Status: ${response.statusCode}');
-          print('📦 [Response Body Length] ${response.body.length} bytes');
-          print('📦 [Response Body] Raw: ${response.body.split('').map((c) => c.codeUnitAt(0).toRadixString(16).padLeft(2, '0')).join(' ')}');
-          print('📦 [Response Body] Text: ${response.body}');
+      try {
+        print('🔍 [Debug] Using token: ${token.length > 10 ? "${token.substring(0, 10)}..." : token}');
+        final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.me}');
+        print('🌐 [API Request] GET $url');
+        print('📤 [Request Headers] Authorization: Bearer ${token.length > 10 ? "${token.substring(0, 10)}..." : token}');
+        
+        final response = await client.get(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+        );
 
-          if (response.statusCode == 200) {
-            try {
-              final responseData = json.decode(response.body);
-              print('🔍 [Debug] Parsed response data: $responseData');
-              if (!responseData.containsKey('data')) {
-                print('❌ [API Error] Invalid response format: missing data field');
-                throw Exception('Invalid response format from server');
-              }
-              return response;
-            } catch (e) {
-              print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+        print('📥 [API Response] Status: ${response.statusCode}');
+        print('📦 [Response Body Length] ${response.body.length} bytes');
+        print('📦 [Response Body] Text: ${response.body}');
+
+        if (response.statusCode == 200) {
+          try {
+            final responseData = json.decode(response.body);
+            print('🔍 [Debug] Parsed response data: $responseData');
+            if (!responseData.containsKey('data')) {
+              print('❌ [API Error] Invalid response format: missing data field');
               throw Exception('Invalid response format from server');
             }
-          } else {
-            String error;
-            try {
-              error = json.decode(response.body)[ApiConfig.keys.common.message] ?? 'Unknown error';
-            } catch (e) {
-              error = 'Failed to parse error message: ${response.body}';
-            }
-            
-            if (response.statusCode == 401) {
-              print('❌ [API Error] Token expired or invalid');
-              throw Exception('Token expired');
-            } else if (response.statusCode >= 500) {
-              print('❌ [API Error] Server error: $error');
-              throw http.ClientException('Service unavailable');
-            }
-            print('❌ [API Error] Client error: $error');
-            throw Exception(error);
+            final data = responseData['data'];
+            final user = UserModel.fromJson(data).toDomain();
+            print('🔍 [Debug] Successfully converted to user model');
+            _eventController.add(CurrentUserRetrieved(user));
+            print('🔍 [Debug] Emitted CurrentUserRetrieved event');
+            yield user;
+            print('🔍 [Debug] Yielded user object');
+          } catch (e) {
+            print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+            throw Exception('Invalid response format from server');
           }
-        },
-        () async {
-          print('🔄 [Debug] Token refreshed, retrying user info request');
-        },
-      );
+        } else {
+          String error;
+          try {
+            error = json.decode(response.body)[ApiConfig.keys.common.message] ?? 'Unknown error';
+          } catch (e) {
+            error = 'Failed to parse error message: ${response.body}';
+          }
+          
+          if (response.statusCode == 401) {
+            print('🔄 [Debug] Token expired, attempting refresh');
+            // Try to refresh token
+            await for (final newToken in obtainToken(userSecret)) {
+              print('✅ [Debug] Token refreshed successfully');
+              // Retry with new token
+              final retryResponse = await client.get(
+                url,
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $newToken',
+                },
+              );
 
-      final data = json.decode(response.body)[ApiConfig.keys.common.data];
-      print('🔍 [Debug] Successfully parsed user data: $data');
-      final user = UserModel.fromJson(data).toDomain();
-      print('🔍 [Debug] Successfully converted to user model');
-      _eventController.add(CurrentUserRetrieved(user));
-      print('🔍 [Debug] Emitted CurrentUserRetrieved event');
-      yield user;
-      print('🔍 [Debug] Yielded user object');
+              if (retryResponse.statusCode == 200) {
+                final retryData = json.decode(retryResponse.body)['data'];
+                final user = UserModel.fromJson(retryData).toDomain();
+                _eventController.add(CurrentUserRetrieved(user));
+                yield user;
+                return;
+              }
+            }
+            throw Exception('Token refresh failed');
+          } else if (response.statusCode >= 500) {
+            print('❌ [API Error] Server error: $error');
+            throw http.ClientException('Service unavailable');
+          }
+          print('❌ [API Error] Client error: $error');
+          throw Exception(error);
+        }
+      } catch (e) {
+        print('❌ [Error] Failed to get current user: ${e.toString()}');
+        _eventController.add(OperationFailure(
+          ApiConfig.operations.auth.getCurrentUser,
+          e.toString(),
+        ));
+        rethrow;
+      }
     } catch (e) {
       print('❌ [Error] Failed to get current user: ${e.toString()}');
       _eventController.add(OperationFailure(

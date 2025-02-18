@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:ever/domain/core/events.dart';
-import 'package:ever/domain/core/user_events.dart';
-import 'package:ever/domain/repositories/user_repository.dart';
-import 'package:ever/domain/usecases/base_usecase.dart';
+import '../../../domain/core/events.dart';
+import '../../../domain/core/user_events.dart';
+import '../../../domain/repositories/user_repository.dart';
+import '../../../domain/usecases/base_usecase.dart';
 
 /// Parameters for login operation
 class LoginParams {
@@ -124,4 +124,4 @@ class LoginUseCase extends BaseUseCase<LoginParams> {
     await _tokenSubscription?.cancel();
     await _events.close();
   }
-}
+} 

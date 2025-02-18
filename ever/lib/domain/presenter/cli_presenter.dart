@@ -55,8 +55,17 @@ class CliPresenter implements EverPresenter {
 
   @override
   Future<void> initialize() async {
-    // Get current user on initialization
-    await getCurrentUser();
+    // Check if we have both token and user secret
+    final token = await _loginUseCase.getCachedToken();
+    final userSecret = await getCachedUserSecret();
+    
+    if (token != null && userSecret != null) {
+      // We have credentials, try to get current user
+      await getCurrentUser();
+    } else {
+      // No credentials, start in initial state
+      _updateState(EverState.initial());
+    }
   }
 
   void _handleUserEvents(DomainEvent event) {
@@ -83,6 +92,8 @@ class CliPresenter implements EverPresenter {
           error: null,
         ),
       );
+      // After registration, try to obtain token and get user info
+      login(event.userSecret);
     } else if (event is OperationFailure) {
       _updateState(
         _stateController.value.copyWith(
@@ -148,7 +159,8 @@ class CliPresenter implements EverPresenter {
       while (!tokenObtained && attempts < 3) {
         attempts++;
         try {
-          await for (final event in _loginUseCase.events.timeout(Duration(seconds: 5))) {
+          await for (final event in _loginUseCase.events.timeout(Duration(seconds: 10))) {
+            print('🔍 [Debug] Token event: ${event.runtimeType}');
             if (event is TokenObtained) {
               print('🔍 [Debug] Token obtained in login flow');
               tokenObtained = true;
@@ -158,10 +170,10 @@ class CliPresenter implements EverPresenter {
             }
           }
         } catch (e) {
+          print('⚠️ [Warning] Token attempt $attempts failed: ${e.toString()}');
           if (attempts >= 3) {
             throw Exception('Failed to obtain token after multiple attempts');
           }
-          // Continue to next attempt
           await Future.delayed(Duration(milliseconds: 100));
         }
       }
@@ -175,36 +187,41 @@ class CliPresenter implements EverPresenter {
       print('🔍 [Debug] Executing getCurrentUserUseCase');
       _getCurrentUserUseCase.execute();
       
-      var userRetrieved = false;
-      attempts = 0;
+      // Create a completer to handle the user info retrieval
+      final completer = Completer<void>();
+      StreamSubscription? subscription;
       
-      while (!userRetrieved && attempts < 3) {
-        attempts++;
-        try {
-          print('🔍 [Debug] Waiting for user info (attempt $attempts)');
-          await for (final event in _getCurrentUserUseCase.events.timeout(Duration(seconds: 5))) {
-            print('🔍 [Debug] Received event in getCurrentUser flow: ${event.runtimeType}');
-            if (event is CurrentUserRetrieved) {
-              print('🔍 [Debug] User info retrieved successfully');
-              userRetrieved = true;
-              break;
-            } else if (event is OperationFailure) {
-              print('❌ [Error] Failed to get user info: ${event.error}');
-              throw Exception(event.error);
-            }
+      subscription = _getCurrentUserUseCase.events.listen(
+        (event) {
+          print('🔍 [Debug] User info event: ${event.runtimeType}');
+          if (event is CurrentUserRetrieved) {
+            print('🔍 [Debug] User info retrieved successfully');
+            completer.complete();
+          } else if (event is OperationFailure) {
+            print('❌ [Error] Failed to get user info: ${event.error}');
+            completer.completeError(Exception(event.error));
           }
-        } catch (e) {
-          print('⚠️ [Warning] Get user attempt $attempts failed: ${e.toString()}');
-          if (attempts >= 3) {
-            throw Exception('Failed to get user info after multiple attempts');
+        },
+        onError: (error) {
+          print('❌ [Error] User info stream error: $error');
+          completer.completeError(error);
+        },
+        onDone: () {
+          print('🔍 [Debug] User info stream completed');
+          if (!completer.isCompleted) {
+            completer.completeError(Exception('User info stream completed without result'));
           }
-          // Continue to next attempt
-          await Future.delayed(Duration(milliseconds: 100));
-        }
-      }
-      
-      if (!userRetrieved) {
-        throw Exception('Failed to get user info');
+        },
+      );
+
+      // Wait for completion with timeout
+      try {
+        await completer.future.timeout(Duration(seconds: 10));
+      } catch (e) {
+        print('❌ [Error] User info timeout: $e');
+        throw Exception('Failed to get user info: $e');
+      } finally {
+        await subscription?.cancel();
       }
     } catch (e) {
       print('❌ [Error] Login failed: ${e.toString()}');

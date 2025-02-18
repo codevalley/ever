@@ -18,7 +18,7 @@ class IsarCache implements LocalCache {
 
   @override
   Future<T?> get<T>(String key) async {
-    final entry = await _isar.cacheEntries.get(key);
+    final entry = await _isar.collection<CacheEntry>().filter().keyEqualTo(key).findFirst();
     if (entry == null) return null;
 
     final value = json.decode(entry.value);
@@ -33,27 +33,27 @@ class IsarCache implements LocalCache {
       ..updatedAt = DateTime.now();
 
     await _isar.writeTxn(() async {
-      await _isar.cacheEntries.put(entry);
+      await _isar.collection<CacheEntry>().put(entry);
     });
   }
 
   @override
   Future<void> remove(String key) async {
     await _isar.writeTxn(() async {
-      await _isar.cacheEntries.delete(key);
+      await _isar.collection<CacheEntry>().filter().keyEqualTo(key).deleteAll();
     });
   }
 
   @override
   Future<void> clear() async {
     await _isar.writeTxn(() async {
-      await _isar.cacheEntries.clear();
+      await _isar.collection<CacheEntry>().clear();
     });
   }
 
   @override
   Future<bool> has(String key) async {
-    return await _isar.cacheEntries.get(key) != null;
+    return await _isar.collection<CacheEntry>().filter().keyEqualTo(key).findFirst() != null;
   }
 
   @override

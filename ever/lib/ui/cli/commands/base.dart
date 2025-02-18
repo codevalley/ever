@@ -53,6 +53,7 @@ abstract class EverCommand extends Command<int> {
       return ExitCode.success.code;
     } catch (e) {
       logger.err(ErrorFormatter().format(e.toString()));
+      // Don't rethrow, just return error code
       return ExitCode.software.code;
     } finally {
       await _cleanup();

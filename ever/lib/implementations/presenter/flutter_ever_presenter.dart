@@ -209,4 +209,20 @@ class FlutterEverPresenter implements EverPresenter {
     }
     await _stateController.close();
   }
+
+  // Cache for user secret
+  String? _cachedUserSecret;
+
+  void _cacheUserSecret(String secret) {
+    _cachedUserSecret = secret;
+  }
+
+  void _clearCachedUserSecret() {
+    _cachedUserSecret = null;
+  }
+
+  @override
+  Future<String?> getCachedUserSecret() async {
+    return _cachedUserSecret;
+  }
 } 

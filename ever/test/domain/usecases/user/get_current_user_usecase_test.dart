@@ -15,21 +15,16 @@ import 'get_current_user_usecase_test.mocks.dart';
 void main() {
   late MockUserRepository mockRepository;
   late GetCurrentUserUseCase useCase;
-  late StreamController<DomainEvent> repositoryEvents;
   late StreamController<User> userStream;
 
   setUp(() {
     mockRepository = MockUserRepository();
-    repositoryEvents = StreamController<DomainEvent>.broadcast();
     userStream = StreamController<User>();
-    
-    when(mockRepository.events).thenAnswer((_) => repositoryEvents.stream);
     useCase = GetCurrentUserUseCase(mockRepository);
   });
 
   tearDown(() {
     useCase.dispose();
-    repositoryEvents.close();
     userStream.close();
   });
 
@@ -48,18 +43,14 @@ void main() {
     );
 
     useCase.execute();
-    
-    // Repository emits progress
-    repositoryEvents.add(OperationInProgress('get_current_user'));
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
-    // Repository emits success with user
     userStream.add(testUser);
-    repositoryEvents.add(CurrentUserRetrieved(testUser));
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
+    expect((events[0] as OperationInProgress).operation, equals('get_current_user'));
     expect(events[1], isA<CurrentUserRetrieved>());
     expect((events[1] as CurrentUserRetrieved).user, equals(testUser));
 
@@ -74,13 +65,13 @@ void main() {
         .thenAnswer((_) => Stream.error('User not found'));
 
     useCase.execute();
-    
-    repositoryEvents.add(OperationFailure('get_current_user', 'User not found'));
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
-    expect(events, hasLength(1));
-    expect(events.first, isA<CurrentUserRetrieved>());
-    expect((events.first as CurrentUserRetrieved).user, isNull);
+    expect(events, hasLength(2));
+    expect(events[0], isA<OperationInProgress>());
+    expect((events[0] as OperationInProgress).operation, equals('get_current_user'));
+    expect(events[1], isA<CurrentUserRetrieved>());
+    expect((events[1] as CurrentUserRetrieved).user, isNull);
 
     await subscription.cancel();
   });
@@ -93,13 +84,13 @@ void main() {
         .thenAnswer((_) => Stream.error('Unauthorized'));
 
     useCase.execute();
-    
-    repositoryEvents.add(OperationFailure('get_current_user', 'Unauthorized'));
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
-    expect(events, hasLength(1));
-    expect(events.first, isA<CurrentUserRetrieved>());
-    expect((events.first as CurrentUserRetrieved).user, isNull);
+    expect(events, hasLength(2));
+    expect(events[0], isA<OperationInProgress>());
+    expect((events[0] as OperationInProgress).operation, equals('get_current_user'));
+    expect(events[1], isA<CurrentUserRetrieved>());
+    expect((events[1] as CurrentUserRetrieved).user, isNull);
 
     await subscription.cancel();
   });
@@ -112,13 +103,13 @@ void main() {
         .thenAnswer((_) => Stream.error('Network error'));
 
     useCase.execute();
-    
-    repositoryEvents.add(OperationFailure('get_current_user', 'Network error'));
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
-    expect(events, hasLength(1));
-    expect(events.first, isA<OperationFailure>());
-    expect((events.first as OperationFailure).error, equals('Network error'));
+    expect(events, hasLength(2));
+    expect(events[0], isA<OperationInProgress>());
+    expect((events[0] as OperationInProgress).operation, equals('get_current_user'));
+    expect(events[1], isA<OperationFailure>());
+    expect((events[1] as OperationFailure).error, equals('Network error'));
 
     await subscription.cancel();
   });
@@ -132,14 +123,11 @@ void main() {
 
     // First retrieval
     useCase.execute();
-    
-    // Repository emits progress
-    repositoryEvents.add(OperationInProgress('get_current_user'));
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
     // Try second retrieval while first is in progress
     useCase.execute();
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
     // Complete first retrieval
     final testUser = User(
@@ -149,13 +137,13 @@ void main() {
       updatedAt: DateTime.now(),
     );
     userStream.add(testUser);
-    repositoryEvents.add(CurrentUserRetrieved(testUser));
-    await Future.delayed(const Duration(milliseconds: 10));
+    await Future.delayed(const Duration(milliseconds: 50));
 
     // Verify only one retrieval was attempted
     verify(mockRepository.getCurrentUser()).called(1);
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
+    expect((events[0] as OperationInProgress).operation, equals('get_current_user'));
     expect(events[1], isA<CurrentUserRetrieved>());
 
     await subscription.cancel();

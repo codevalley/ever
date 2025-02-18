@@ -3,20 +3,24 @@ import 'package:isar/isar.dart';
 part 'cache_entry.g.dart';
 
 /// Model for cache entries in Isar
-@collection
+@Collection(inheritance: false)
 class CacheEntry {
-  /// The key is used as the ID
-  Id get id => fastHash(key);
-  
-  /// The key for the cache entry
+  Id get id => Isar.autoIncrement; // Isar id
+
   @Index(unique: true, replace: true)
-  String key = '';
+  late String key;
 
-  /// The value stored as a JSON string
-  String value = '';
+  late String value;
 
-  /// When the entry was last updated
-  DateTime updatedAt = DateTime.now();
+  @Index()
+  late DateTime updatedAt;
+
+  CacheEntry();
+
+  @override
+  String toString() {
+    return 'CacheEntry{key: $key, value: $value, updatedAt: $updatedAt}';
+  }
 }
 
 /// Fast string hash function
