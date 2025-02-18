@@ -1,10 +1,14 @@
 # Presentation Layer Architecture Guide
 
-## Overview
+## Core Philosophy
 
-This guide explains the presentation layer architecture implemented in the Ever app, focusing on our approach to state management, event handling, and UI abstraction. The architecture follows a unidirectional data flow pattern while maintaining platform independence.
+Our presentation architecture is built on three fundamental principles:
 
-### Architecture Overview
+1. **Platform Independence**: The business logic should be completely decoupled from the UI implementation.
+2. **Unidirectional Data Flow**: State flows down, actions flow up, making the system predictable and debuggable.
+3. **Event-Driven Updates**: Changes propagate through the system via well-defined events.
+
+## Architecture Overview
 
 ```mermaid
 graph TD
@@ -27,19 +31,140 @@ graph TD
     class UI planned
 ```
 
-### UI Interchangeability
+### Why This Architecture?
 
-One of the key strengths of this architecture is the ability to easily swap UI implementations while maintaining application state and behavior. Since all state management and business logic lives in the presenter layer, UIs are effectively stateless views that:
+1. **Separation of Concerns**
+   - UI layer focuses purely on presentation
+   - Presenter manages state and business logic
+   - Use cases handle domain operations
+   - Each layer has a single responsibility
 
-1. **Observe State**:
+2. **Testability**
+   - UI can be tested in isolation
+   - Business logic can be tested without UI
+   - State transitions are predictable and testable
+   - Events can be mocked and verified
+
+3. **Maintainability**
+   - Changes to UI don't affect business logic
+   - Business logic changes don't require UI updates
+   - New features can be added without modifying existing code
+   - Clear boundaries between components
+
+### Key Components
+
+1. **Presenter**
+   - Acts as the bridge between UI and business logic
+   - Manages application state
+   - Handles UI actions
+   - Transforms domain events into UI state
+
+2. **State**
+   - Immutable data structure
+   - Represents entire UI state
+   - Single source of truth
+   - Easy to debug and test
+
+3. **Events**
+   - Represent domain changes
+   - Flow from bottom to top
+   - Can be transformed and combined
+   - Enable loose coupling
+
+## Implementation Guide
+
+### 1. Define Your State
+
+Start by defining what your UI needs to display:
+
 ```dart
-class FlutterLoginScreen extends StatelessWidget {
+class AppState {
+  final bool isLoading;
+  final User? currentUser;
+  final String? error;
+  final bool isAuthenticated;
+
+  const AppState({
+    this.isLoading = false,
+    this.currentUser,
+    this.error,
+    this.isAuthenticated = false,
+  });
+
+  // IMPORTANT: Always implement copyWith
+  AppState copyWith({...}) {...}
+  
+  // IMPORTANT: Always implement equality
+  @override
+  bool operator ==(Object other) {...}
+  
+  @override
+  int get hashCode {...}
+}
+```
+
+### 2. Define Your Presenter Interface
+
+Create a clear contract for UI interaction:
+
+```dart
+abstract class AppPresenter {
+  // State stream that UI will listen to
+  Stream<AppState> get state;
+
+  // Actions that UI can trigger
+  Future<void> login(String username, String password);
+  Future<void> logout();
+  
+  // Lifecycle methods
+  Future<void> initialize();
+  Future<void> dispose();
+}
+```
+
+### 3. Implement the Presenter
+
+```dart
+class AppPresenterImpl implements AppPresenter {
+  final _stateController = BehaviorSubject<AppState>.seeded(AppState());
+  
+  @override
+  Stream<AppState> get state => _stateController.stream;
+
+  void _updateState(AppState Function(AppState) update) {
+    final newState = update(_stateController.value);
+    if (newState != _stateController.value) {
+      _stateController.add(newState);
+    }
+  }
+  
+  // Handle domain events
+  void _handleEvents(DomainEvent event) {
+    if (event is UserLoggedIn) {
+      _updateState((state) => state.copyWith(
+        isAuthenticated: true,
+        currentUser: event.user,
+        error: null,
+      ));
+    }
+  }
+}
+```
+
+### 4. Create Your UI
+
+The UI should be a pure function of state:
+
+```dart
+class LoginScreen extends StatelessWidget {
+  final AppPresenter presenter;
+
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<EverState>(
+    return StreamBuilder<AppState>(
       stream: presenter.state,
       builder: (context, snapshot) {
-        final state = snapshot.data ?? EverState.initial();
+        final state = snapshot.data ?? AppState();
         return _buildUI(state);
       },
     );
@@ -47,456 +172,166 @@ class FlutterLoginScreen extends StatelessWidget {
 }
 ```
 
-2. **Dispatch Actions**:
-```dart
-// Flutter Material UI
-ElevatedButton(
-  onPressed: () => presenter.login(credentials),
-  child: Text('Login'),
-)
-
-// CLI UI
-void handleCommand(String command) {
-  switch (command) {
-    case 'login':
-      presenter.login(credentials);
-      break;
-  }
-}
-
-// Web UI
-<button onClick={() => presenter.login(credentials)}>
-  Login
-</button>
-```
-
-This architecture enables:
-
-1. **Multiple UI Flavors**:
-   - Material Design implementation
-   - Cupertino (iOS-style) implementation
-   - Custom branded UI
-   - CLI interface
-   - Web interface
-
-2. **Easy A/B Testing**:
-   ```dart
-   Widget buildLoginUI(EverState state) {
-     return experimentGroup == 'A' 
-       ? LoginScreenA(state: state)
-       : LoginScreenB(state: state);
-   }
-   ```
-
-3. **Platform-Specific UIs**:
-   ```dart
-   Widget buildPlatformUI(EverState state) {
-     if (Platform.isIOS) {
-       return CupertinoLoginScreen(state: state);
-     } else if (Platform.isAndroid) {
-       return MaterialLoginScreen(state: state);
-     } else {
-       return WebLoginScreen(state: state);
-     }
-   }
-   ```
-
-4. **Seamless State Preservation**:
-   - Switch UI implementations without losing state
-   - Maintain authentication across UI changes
-   - Preserve user data and preferences
-   - Continue operations in progress
-
-Example of switching UI implementations:
-
-```dart
-class App extends StatelessWidget {
-  final EverPresenter presenter; // Same presenter
-  final String uiImplementation; // Can be changed dynamically
-
-  @override
-  Widget build(BuildContext context) {
-    switch (uiImplementation) {
-      case 'material':
-        return MaterialApp(
-          home: MaterialLoginScreen(presenter: presenter),
-        );
-      case 'cupertino':
-        return CupertinoApp(
-          home: CupertinoLoginScreen(presenter: presenter),
-        );
-      case 'custom':
-        return CustomApp(
-          home: CustomLoginScreen(presenter: presenter),
-        );
-      default:
-        return MaterialApp(
-          home: MaterialLoginScreen(presenter: presenter),
-        );
-    }
-  }
-}
-```
-
-Benefits of this approach:
-
-1. **Development Efficiency**:
-   - Develop and test UI variants independently
-   - Reuse core business logic across variants
-   - Simplified UI testing (just test state rendering)
-
-2. **User Experience**:
-   - Consistent behavior across UI variants
-   - Seamless transitions between UIs
-   - No state loss during UI switches
-
-3. **Maintenance**:
-   - Localize UI changes to view layer
-   - Test business logic independently
-   - Easy to add new UI variants
-
-4. **Experimentation**:
-   - Simple A/B testing implementation
-   - Easy to prototype new UI designs
-   - Quick iteration on user feedback
-
-## Core Concepts
-
-### 1. Platform-Independent Presenter
-
-The `EverPresenter` interface provides a platform-agnostic way to handle UI logic:
-
-```dart
-abstract class EverPresenter {
-  /// Stream of the current state
-  Stream<EverState> get state;
-
-  /// User Actions
-  Future<void> register(String username);
-  Future<void> login(String userSecret);
-  Future<void> logout();
-  
-  /// Resource Management
-  Future<void> initialize();
-  Future<void> dispose();
-}
-```
-
-Key benefits:
-- Platform independence
-- Clear interface contract
-- Testable behavior
-- Separation of concerns
-
-### 2. Immutable State
-
-```dart
-class EverState {
-  final bool isLoading;
-  final User? currentUser;
-  final List<Note> notes;
-  final List<Task> tasks;
-  final String? error;
-  final bool isAuthenticated;
-
-  const EverState({
-    this.isLoading = false,
-    this.currentUser,
-    this.notes = const [],
-    this.tasks = const [],
-    this.error,
-    this.isAuthenticated = false,
-  });
-
-  /// Factory methods for common states
-  factory EverState.initial() => const EverState();
-  factory EverState.loading() => const EverState(isLoading: true);
-  factory EverState.error(String message) => EverState(error: message);
-}
-```
-
-Benefits:
-- Predictable state transitions
-- Easy to test and debug
-- Thread-safe
-- Efficient equality comparisons
-
-### 3. Event-Driven Updates
-
-```mermaid
-sequenceDiagram
-    participant UI
-    participant Presenter
-    participant UseCase
-    participant Repository
-    
-    UI->>Presenter: Action (e.g., login)
-    Presenter->>UseCase: Execute
-    UseCase->>Repository: Operation
-    Repository-->>UseCase: Event
-    UseCase-->>Presenter: Event
-    Presenter->>Presenter: Transform Event to State
-    Presenter-->>UI: New State
-```
-
-## Implementation Patterns
+## Best Practices and Patterns
 
 ### 1. State Management
 
-```dart
-class FlutterEverPresenter implements EverPresenter {
-  final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
-  
-  @override
-  Stream<EverState> get state => _stateController.stream;
+✅ **Do**:
+- Make state immutable
+- Use copyWith for updates
+- Implement proper equality
+- Keep state minimal
 
-  void _updateState(EverState newState) {
-    // Only emit if state actually changed
-    if (_stateController.value != newState) {
-      _stateController.add(newState);
-    }
-  }
-}
-```
-
-Key aspects:
-1. Single source of truth
-2. Distinct state updates
-3. Reactive state stream
-4. Efficient updates
+❌ **Don't**:
+- Mutate state directly
+- Store derived data
+- Mix UI and domain state
+- Duplicate state
 
 ### 2. Event Handling
 
+✅ **Do**:
+- Categorize events by type
+- Transform events to state
+- Handle errors gracefully
+- Clean up subscriptions
+
+❌ **Don't**:
+- Mix event handling with UI logic
+- Ignore error events
+- Leak subscriptions
+- Handle events synchronously when async is needed
+
+### 3. Error Handling
+
+✅ **Do**:
 ```dart
-void _handleUserEvents(DomainEvent event) {
-  if (event is CurrentUserRetrieved) {
-    _updateState(
-      _stateController.value.copyWith(
-        isLoading: false,
-        currentUser: event.user,
-        isAuthenticated: event.user != null,
-        error: null,
-      ),
-    );
-  } else if (event is OperationFailure) {
-    _updateState(
-      _stateController.value.copyWith(
-        isLoading: false,
-        error: event.error,
-      ),
-    );
-  }
+try {
+  await useCase.execute();
+} catch (e) {
+  _updateState((state) => state.copyWith(
+    error: e.toString(),
+    isLoading: false,
+  ));
 }
 ```
 
-Key patterns:
-1. Event categorization
-2. State transformation
-3. Error handling
-4. Loading state management
-
-### 3. Action Processing
-
+❌ **Don't**:
 ```dart
-@override
-Future<void> login(String userSecret) async {
-  // Clear errors and show loading
-  _updateState(EverState.initial().copyWith(isLoading: true));
-  
-  // Execute use case
-  _loginUseCase.execute(LoginParams(userSecret: userSecret));
+try {
+  await useCase.execute();
+} catch (e) {
+  print(e); // Don't just log errors
+  throw e; // Don't rethrow without handling
 }
 ```
-
-Best practices:
-1. Clear error state
-2. Show loading indicator
-3. Preserve relevant state
-4. Handle failures gracefully
 
 ## Testing Strategies
 
 ### 1. State Testing
 
 ```dart
-test('updates state during login flow', () async {
-  final user = User(id: '1', username: 'test');
+test('login updates state correctly', () {
+  final presenter = AppPresenterImpl();
+  final states = <AppState>[];
   
-  await presenter.login('secret123');
-  await pumpEventQueue();
-  loginEventController.add(OperationInProgress('login'));
-  await pumpEventQueue();
-  getCurrentUserEventController.add(CurrentUserRetrieved(user));
-  await pumpEventQueue();
-
+  presenter.state.listen(states.add);
+  
+  await presenter.login('user', 'pass');
+  
   expect(states, [
-    isEverState(),
-    isEverState(isLoading: true),
-    isEverState(
-      isLoading: false,
-      currentUser: user,
-      isAuthenticated: true,
-    ),
+    isA<AppState>().having((s) => s.isLoading, 'loading', true),
+    isA<AppState>().having((s) => s.isAuthenticated, 'authenticated', true),
   ]);
 });
 ```
-
-Key aspects:
-1. State sequence verification
-2. Event-state correlation
-3. Async state changes
-4. Edge case coverage
 
 ### 2. Event Testing
 
 ```dart
-test('handles login failure', () async {
-  await presenter.login('secret123');
-  await pumpEventQueue();
-  loginEventController.add(OperationInProgress('login'));
-  await pumpEventQueue();
-  loginEventController.add(OperationFailure('login', 'Invalid credentials'));
-  await pumpEventQueue();
-
-  expect(states, [
-    isEverState(),
-    isEverState(isLoading: true),
-    isEverState(error: 'Invalid credentials'),
-  ]);
+test('handles error events correctly', () {
+  final presenter = AppPresenterImpl();
+  
+  when(useCase.execute())
+      .thenAnswer((_) => Stream.error('Network error'));
+      
+  await presenter.login('user', 'pass');
+  
+  expect(
+    presenter.state,
+    emits(isA<AppState>().having((s) => s.error, 'error', 'Network error')),
+  );
 });
 ```
 
-Focus areas:
-1. Error handling
-2. Event transformation
-3. State consistency
-4. Loading states
+## Common Pitfalls and Solutions
 
-### 3. Resource Management
+1. **State Updates Not Reflecting**
+   - Ensure proper equality implementation
+   - Verify state stream subscription
+   - Check for proper state updates
 
-```dart
-test('cleans up resources on dispose', () async {
-  await presenter.dispose();
-  expect(presenter.state, emitsDone);
-});
-```
+2. **Memory Leaks**
+   - Always dispose of controllers
+   - Cancel subscriptions
+   - Use weak references when needed
 
-Key points:
-1. Subscription cleanup
-2. Stream closure
-3. Resource release
-4. Memory leak prevention
+3. **Inconsistent State**
+   - Use atomic updates
+   - Validate state transitions
+   - Implement state invariants
 
-## Best Practices
+## Migration Guide
 
-### 1. State Updates
+If you're migrating from a different architecture:
 
-1. **Atomic Updates**:
-   ```dart
-   // Good
-   _updateState(_stateController.value.copyWith(
-     isLoading: true,
-     error: null,
-   ));
+1. **Start with State**
+   - Define your state model
+   - Make it immutable
+   - Add necessary operations
 
-   // Bad - Multiple updates
-   _updateState(_stateController.value.copyWith(isLoading: true));
-   _updateState(_stateController.value.copyWith(error: null));
-   ```
+2. **Create Presenter**
+   - Define the interface
+   - Implement basic operations
+   - Add event handling
 
-2. **Preserve State**:
-   ```dart
-   // Good - Preserve user during loading
-   _updateState(_stateController.value.copyWith(isLoading: true));
+3. **Update UI**
+   - Remove state management
+   - Listen to presenter
+   - Dispatch actions
 
-   // Bad - Lose user state
-   _updateState(EverState.initial().copyWith(isLoading: true));
-   ```
+4. **Add Testing**
+   - Test state transitions
+   - Test event handling
+   - Test error cases
 
-3. **Clear Errors**:
-   ```dart
-   // Good - Clear errors on new operation
-   _updateState(_stateController.value.copyWith(
-     isLoading: true,
-     error: null,
-   ));
+## Performance Considerations
 
-   // Bad - Leave stale errors
-   _updateState(_stateController.value.copyWith(
-     isLoading: true,
-   ));
-   ```
+1. **State Updates**
+   - Minimize state updates
+   - Use distinct until changed
+   - Batch updates when possible
 
-### 2. Event Handling
+2. **Event Processing**
+   - Consider debouncing
+   - Use throttling when needed
+   - Process events asynchronously
 
-1. **Event Categorization**:
-   ```dart
-   // Good
-   void _handleUserEvents(DomainEvent event) {
-     if (event is CurrentUserRetrieved) {
-       // Handle user retrieval
-     } else if (event is OperationFailure) {
-       // Handle failure
-     }
-   }
+3. **Memory Management**
+   - Dispose resources properly
+   - Use weak references
+   - Monitor memory usage
 
-   // Bad
-   void _handleAllEvents(dynamic event) {
-     // Handle everything in one place
-   }
-   ```
+## Conclusion
 
-2. **Event Transformation**:
-   ```dart
-   // Good
-   if (event is TokenObtained) {
-     getCurrentUser(); // Transform to user state
-   }
+This architecture provides:
+- Clear separation of concerns
+- Predictable state management
+- Easy testing
+- Maintainable code
 
-   // Bad
-   if (event is TokenObtained) {
-     _updateState(...); // Direct state update
-   }
-   ```
-
-3. **Error Propagation**:
-   ```dart
-   // Good
-   if (event is OperationFailure) {
-     _updateState(_stateController.value.copyWith(
-       error: event.error,
-       isLoading: false,
-     ));
-   }
-
-   // Bad
-   if (event is OperationFailure) {
-     throw Exception(event.error);
-   }
-   ```
-
-## Future Improvements
-
-1. **State Management**:
-   - State history tracking
-   - Undo/redo support
-   - State persistence
-   - State restoration
-
-2. **Event Handling**:
-   - Event debouncing
-   - Event throttling
-   - Event correlation
-   - Event logging
-
-3. **Testing**:
-   - State snapshot testing
-   - Event sequence testing
-   - Performance testing
-   - State transition testing
-
-4. **Monitoring**:
-   - State transition metrics
-   - Event processing metrics
-   - Error tracking
-   - Performance monitoring 
+Remember:
+- Keep state immutable
+- Handle events properly
+- Test thoroughly
+- Clean up resources 

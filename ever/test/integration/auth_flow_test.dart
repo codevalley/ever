@@ -8,7 +8,7 @@ import 'package:mockito/mockito.dart';
 import 'package:ever/domain/core/events.dart';
 import 'package:ever/domain/core/retry_config.dart';
 import 'package:ever/domain/core/circuit_breaker.dart';
-import 'package:ever/domain/core/user_events.dart';
+import 'package:ever/domain/events/user_events.dart';
 import 'package:ever/domain/entities/user.dart';
 import 'package:ever/implementations/datasources/user_ds_impl.dart';
 import 'package:ever/implementations/repositories/user_repository_impl.dart';
@@ -20,7 +20,7 @@ import 'auth_flow_test.mocks.dart';
 export 'package:ever/domain/core/events.dart';
 export 'package:ever/domain/core/retry_events.dart';
 export 'package:ever/domain/core/service_events.dart';
-export 'package:ever/domain/core/user_events.dart';
+export 'package:ever/domain/events/user_events.dart';
 
 @GenerateMocks([http.Client, LocalCache])
 void main() {

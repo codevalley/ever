@@ -1,4 +1,4 @@
-import 'events.dart';
+import '../core/events.dart';
 
 /// Event when user successfully registers
 class UserRegistered extends DomainEvent {

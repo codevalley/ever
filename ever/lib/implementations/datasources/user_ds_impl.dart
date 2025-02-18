@@ -9,7 +9,7 @@ import '../../domain/core/events.dart';
 import '../../domain/core/local_cache.dart';
 import '../../domain/core/retry_config.dart';
 import '../../domain/core/retry_events.dart';
-import '../../domain/core/user_events.dart';
+import '../../domain/events/user_events.dart';
 import '../../domain/datasources/user_ds.dart';
 import '../../domain/entities/user.dart';
 import '../config/api_config.dart';

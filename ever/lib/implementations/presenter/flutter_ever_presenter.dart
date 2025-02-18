@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:rxdart/rxdart.dart';
 import '../../core/logging.dart';
 import '../../domain/core/events.dart';
-import '../../domain/core/user_events.dart';
+import '../../domain/events/user_events.dart';
 import '../../domain/presenter/ever_presenter.dart';
 import '../../domain/usecases/user/get_current_user_usecase.dart';
 import '../../domain/usecases/user/login_usecase.dart';

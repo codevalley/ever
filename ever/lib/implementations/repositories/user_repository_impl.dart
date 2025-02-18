@@ -3,7 +3,7 @@ import 'dart:async';
 import '../../domain/core/circuit_breaker.dart';
 import '../../domain/core/events.dart';
 import '../../domain/core/retry_config.dart';
-import '../../domain/core/user_events.dart';
+import '../../domain/events/user_events.dart';
 import '../../domain/datasources/user_ds.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/user_repository.dart';

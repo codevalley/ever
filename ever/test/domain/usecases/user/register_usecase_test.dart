@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:ever/domain/core/events.dart';
-import 'package:ever/domain/core/user_events.dart';
+import 'package:ever/domain/events/user_events.dart';
 import 'package:ever/domain/entities/user.dart';
 import 'package:ever/domain/repositories/user_repository.dart';
 import 'package:ever/domain/usecases/user/register_usecase.dart';
