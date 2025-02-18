@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:rxdart/rxdart.dart';
+import '../../core/logging.dart';
 import '../../domain/core/events.dart';
 import '../../domain/core/user_events.dart';
 import '../../domain/presenter/ever_presenter.dart';
@@ -54,12 +55,21 @@ class FlutterEverPresenter implements EverPresenter {
 
   @override
   Future<void> initialize() async {
-    // Get current user on initialization
-    await getCurrentUser();
+    // Check if we have both token and user secret
+    final token = await _loginUseCase.getCachedToken();
+    final userSecret = await getCachedUserSecret();
+    
+    if (token != null && userSecret != null) {
+      // We have credentials, try to get current user
+      await getCurrentUser();
+    } else {
+      // No credentials, start in initial state
+      _updateState(EverState.initial());
+    }
   }
 
   void _handleUserEvents(DomainEvent event) {
-    print('🔍 [Debug] Presenter handling event: ${event.runtimeType}');
+    dprint('Flutter Presenter handling event: ${event.runtimeType}');
     
     if (event is CurrentUserRetrieved) {
       _updateState(
@@ -71,6 +81,8 @@ class FlutterEverPresenter implements EverPresenter {
         ),
       );
     } else if (event is UserRegistered) {
+      dprint('Flutter Presenter handling UserRegistered event');
+      _cacheUserSecret(event.userSecret);
       _updateState(
         _stateController.value.copyWith(
           isLoading: false,
@@ -79,6 +91,8 @@ class FlutterEverPresenter implements EverPresenter {
           error: null,
         ),
       );
+      // After registration, try to obtain token and get user info
+      login(event.userSecret);
     } else if (event is OperationFailure) {
       _updateState(
         _stateController.value.copyWith(
@@ -94,6 +108,7 @@ class FlutterEverPresenter implements EverPresenter {
         ),
       );
     } else if (event is UserLoggedOut) {
+      _clearCachedUserSecret();
       _updateState(
         EverState.initial(),
       );
@@ -101,11 +116,13 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   void _handleTokenEvents(DomainEvent event) {
+    dprint('Flutter Presenter handling token event: ${event.runtimeType}');
     if (event is TokenExpired) {
       _updateState(
         EverState.initial(),
       );
     } else if (event is TokenObtained || event is TokenRefreshed) {
+      dprint('Token obtained, getting current user');
       // Keep loading state true while getting user
       _updateState(
         _stateController.value.copyWith(
@@ -126,8 +143,93 @@ class FlutterEverPresenter implements EverPresenter {
 
   @override
   Future<void> login(String userSecret) async {
+    dprint('Starting login process');
     _updateState(EverState.initial().copyWith(isLoading: true));
-    _loginUseCase.execute(LoginParams(userSecret: userSecret));
+    
+    try {
+      // First obtain token
+      dprint('Obtaining token');
+      _loginUseCase.execute(LoginParams(userSecret: userSecret));
+      
+      // Wait for token events to be processed
+      var tokenObtained = false;
+      var attempts = 0;
+      while (!tokenObtained && attempts < 3) {
+        attempts++;
+        try {
+          await for (final event in _loginUseCase.events.timeout(Duration(seconds: 10))) {
+            dprint('Token event: ${event.runtimeType}');
+            if (event is TokenObtained) {
+              dprint('Token obtained in login flow');
+              tokenObtained = true;
+              break;
+            } else if (event is OperationFailure) {
+              throw Exception(event.error);
+            }
+          }
+        } catch (e) {
+          wprint('Token attempt $attempts failed: ${e.toString()}');
+          if (attempts >= 3) {
+            throw Exception('Failed to obtain token after multiple attempts');
+          }
+          await Future.delayed(Duration(milliseconds: 100));
+        }
+      }
+      
+      if (!tokenObtained) {
+        throw Exception('Failed to obtain token');
+      }
+
+      // Now get current user
+      dprint('Getting current user info');
+      dprint('Executing getCurrentUserUseCase');
+      _getCurrentUserUseCase.execute();
+      
+      // Create a completer to handle the user info retrieval
+      final completer = Completer<void>();
+      StreamSubscription? subscription;
+      
+      subscription = _getCurrentUserUseCase.events.listen(
+        (event) {
+          dprint('User info event: ${event.runtimeType}');
+          if (event is CurrentUserRetrieved) {
+            dprint('User info retrieved successfully');
+            completer.complete();
+          } else if (event is OperationFailure) {
+            eprint('Failed to get user info: ${event.error}');
+            completer.completeError(Exception(event.error));
+          }
+        },
+        onError: (error) {
+          eprint('User info stream error: $error');
+          completer.completeError(error);
+        },
+        onDone: () {
+          dprint('User info stream completed');
+          if (!completer.isCompleted) {
+            completer.completeError(Exception('User info stream completed without result'));
+          }
+        },
+      );
+
+      // Wait for completion with timeout
+      try {
+        await completer.future.timeout(Duration(seconds: 10));
+      } catch (e) {
+        eprint('User info timeout: $e');
+        throw Exception('Failed to get user info: $e');
+      } finally {
+        await subscription.cancel();
+      }
+    } catch (e) {
+      eprint('Login failed: ${e.toString()}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+    }
   }
 
   @override

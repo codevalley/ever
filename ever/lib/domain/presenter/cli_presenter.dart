@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:rxdart/rxdart.dart';
-
+import '../../core/logging.dart';
 import '../core/events.dart';
 import '../core/user_events.dart';
 import '../usecases/user/get_current_user_usecase.dart';
@@ -69,7 +69,7 @@ class CliPresenter implements EverPresenter {
   }
 
   void _handleUserEvents(DomainEvent event) {
-    print('🔍 [Debug] CLI Presenter handling event: ${event.runtimeType}');
+    eprint('CLI Presenter handling event: ${event.runtimeType}');
     
     if (event is CurrentUserRetrieved) {
       _updateState(
@@ -81,7 +81,7 @@ class CliPresenter implements EverPresenter {
         ),
       );
     } else if (event is UserRegistered) {
-      print('🔍 [Debug] CLI Presenter handling UserRegistered event');
+      dprint('CLI Presenter handling UserRegistered event');
       // Cache the user secret when registering
       _cacheUserSecret(event.userSecret);
       _updateState(
@@ -118,13 +118,13 @@ class CliPresenter implements EverPresenter {
   }
 
   void _handleTokenEvents(DomainEvent event) {
-    print('🔍 [Debug] CLI Presenter handling token event: ${event.runtimeType}');
+    dprint('CLI Presenter handling token event: ${event.runtimeType}');
     if (event is TokenExpired) {
       _updateState(
         EverState.initial(),
       );
     } else if (event is TokenObtained || event is TokenRefreshed) {
-      print('🔍 [Debug] Token obtained, getting current user');
+      dprint('Token obtained, getting current user');
       // Keep loading state true while getting user
       _updateState(
         _stateController.value.copyWith(
@@ -145,12 +145,12 @@ class CliPresenter implements EverPresenter {
 
   @override
   Future<void> login(String userSecret) async {
-    print('🔍 [Debug] Starting login process');
+    dprint('Starting login process');
     _updateState(EverState.initial().copyWith(isLoading: true));
     
     try {
       // First obtain token
-      print('🔍 [Debug] Obtaining token');
+      dprint('Obtaining token');
       _loginUseCase.execute(LoginParams(userSecret: userSecret));
       
       // Wait for token events to be processed
@@ -160,9 +160,9 @@ class CliPresenter implements EverPresenter {
         attempts++;
         try {
           await for (final event in _loginUseCase.events.timeout(Duration(seconds: 10))) {
-            print('🔍 [Debug] Token event: ${event.runtimeType}');
+            dprint('Token event: ${event.runtimeType}');
             if (event is TokenObtained) {
-              print('🔍 [Debug] Token obtained in login flow');
+              dprint('Token obtained in login flow');
               tokenObtained = true;
               break;
             } else if (event is OperationFailure) {
@@ -170,7 +170,7 @@ class CliPresenter implements EverPresenter {
             }
           }
         } catch (e) {
-          print('⚠️ [Warning] Token attempt $attempts failed: ${e.toString()}');
+          wprint('Token attempt $attempts failed: ${e.toString()}');
           if (attempts >= 3) {
             throw Exception('Failed to obtain token after multiple attempts');
           }
@@ -183,8 +183,8 @@ class CliPresenter implements EverPresenter {
       }
 
       // Now get current user
-      print('🔍 [Debug] Getting current user info');
-      print('🔍 [Debug] Executing getCurrentUserUseCase');
+      dprint('Getting current user info');
+      dprint('Executing getCurrentUserUseCase');
       _getCurrentUserUseCase.execute();
       
       // Create a completer to handle the user info retrieval
@@ -193,21 +193,21 @@ class CliPresenter implements EverPresenter {
       
       subscription = _getCurrentUserUseCase.events.listen(
         (event) {
-          print('🔍 [Debug] User info event: ${event.runtimeType}');
+          dprint('User info event: ${event.runtimeType}');
           if (event is CurrentUserRetrieved) {
-            print('🔍 [Debug] User info retrieved successfully');
+            dprint('User info retrieved successfully');
             completer.complete();
           } else if (event is OperationFailure) {
-            print('❌ [Error] Failed to get user info: ${event.error}');
+            eprint('Failed to get user info: ${event.error}');
             completer.completeError(Exception(event.error));
           }
         },
         onError: (error) {
-          print('❌ [Error] User info stream error: $error');
+          eprint('User info stream error: $error');
           completer.completeError(error);
         },
         onDone: () {
-          print('🔍 [Debug] User info stream completed');
+          dprint('User info stream completed');
           if (!completer.isCompleted) {
             completer.completeError(Exception('User info stream completed without result'));
           }
@@ -218,13 +218,13 @@ class CliPresenter implements EverPresenter {
       try {
         await completer.future.timeout(Duration(seconds: 10));
       } catch (e) {
-        print('❌ [Error] User info timeout: $e');
+        eprint('User info timeout: $e');
         throw Exception('Failed to get user info: $e');
       } finally {
-        await subscription?.cancel();
+        await subscription.cancel();
       }
     } catch (e) {
-      print('❌ [Error] Login failed: ${e.toString()}');
+      eprint('Login failed: ${e.toString()}');
       _updateState(
         _stateController.value.copyWith(
           isLoading: false,

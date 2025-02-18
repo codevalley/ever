@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/logging.dart';
 import '../../domain/core/circuit_breaker.dart';
 import '../../domain/core/events.dart';
 import '../../domain/core/local_cache.dart';
@@ -69,22 +70,22 @@ class UserDataSourceImpl implements UserDataSource {
     while (true) {
       try {
         attempts++;
-        print('🔄 [Attempt $attempts] Executing $operation');
+        iprint('Attempt $attempts executing $operation', '🔄');
         return await apiCall();
       } catch (e) {
         final elapsed = DateTime.now().difference(startTime);
-        print('⚠️ [Error] $operation failed after ${elapsed.inMilliseconds}ms: $e');
+        wprint('$operation failed after ${elapsed.inMilliseconds}ms: $e');
         
         if (!retryConfig.shouldRetry(e) || attempts >= retryConfig.maxAttempts) {
           if (attempts > 1) {
-            print('❌ [Retry Exhausted] $operation failed after $attempts attempts');
+            eprint('$operation failed after $attempts attempts', '❌');
             _eventController.add(RetryExhausted(operation, e, attempts));
           }
           rethrow;
         }
         
         final delay = retryConfig.getDelayForAttempt(attempts);
-        print('⏳ [Retry] Waiting ${delay.inMilliseconds}ms before attempt ${attempts + 1}');
+        iprint('Waiting ${delay.inMilliseconds}ms before attempt ${attempts + 1}', '⏳');
         _eventController.add(RetryAttempt(operation, attempts, delay, e));
         await Future.delayed(delay);
       }
@@ -104,9 +105,9 @@ class UserDataSourceImpl implements UserDataSource {
           final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.register}');
           final body = json.encode({ApiConfig.keys.auth.username: username});
           
-          print('🌐 [API Request] POST $url');
-          print('📤 [Request Headers] ${ApiConfig.headers.json}');
-          print('📦 [Request Body] $body');
+          iprint('API Request: POST $url', '🌐');
+          iprint('Request Headers: ${ApiConfig.headers.json}', '📤');
+          iprint('Request Body: $body', '📦');
           
           final response = await client.post(
             url,
@@ -114,22 +115,22 @@ class UserDataSourceImpl implements UserDataSource {
             body: body,
           );
 
-          print('📥 [API Response] Status: ${response.statusCode}');
-          print('📦 [Response Body Length] ${response.body.length} bytes');
-          print('📦 [Response Body] Raw: ${response.body.split('').map((c) => c.codeUnitAt(0).toRadixString(16).padLeft(2, '0')).join(' ')}');
-          print('📦 [Response Body] Text: ${response.body}');
+          iprint('API Response Status: ${response.statusCode}', '📥');
+          iprint('Response Body Length: ${response.body.length} bytes', '📦');
+          iprint('Response Body Raw: ${response.body.split('').map((c) => c.codeUnitAt(0).toRadixString(16).padLeft(2, '0')).join(' ')}', '📦');
+          iprint('Response Body Text: ${response.body}', '📦');
 
           if (response.statusCode == 201) {
             try {
               // Validate JSON response
               final responseData = json.decode(response.body);
               if (!responseData.containsKey('data')) {
-                print('❌ [API Error] Invalid response format: missing data field');
+                eprint('Invalid response format: missing data field');
                 throw Exception('Invalid response format from server');
               }
               return response;
             } catch (e) {
-              print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+              eprint('Invalid JSON response: ${e.toString()}');
               throw Exception('Invalid response format from server');
             }
           } else {
@@ -141,10 +142,10 @@ class UserDataSourceImpl implements UserDataSource {
             }
             
             if (response.statusCode >= 500) {
-              print('❌ [API Error] Server error: $error');
+              eprint('Server error: $error');
               throw http.ClientException('Service unavailable');
             }
-            print('❌ [API Error] Client error: $error');
+            eprint('Client error: $error');
             throw Exception(error);
           }
         },
@@ -154,8 +155,8 @@ class UserDataSourceImpl implements UserDataSource {
         final responseData = json.decode(response.body);
         final data = responseData['data'];
         
-        print('🔍 [Debug] Parsed response data: $data');
-        print('🔍 [Debug] Available fields: ${data.keys.join(', ')}');
+        dprint('Parsed response data: $data');
+        dprint('Available fields: ${data.keys.join(', ')}');
         
         // Validate required fields
         if (!data.containsKey(ApiConfig.keys.auth.userSecret)) {
@@ -174,23 +175,23 @@ class UserDataSourceImpl implements UserDataSource {
         await cache.set('userSecret', userSecret);
 
         final user = UserModel.fromJson(data).toDomain();
-        print('🔍 [Debug] Created user model and converted to domain entity');
+        dprint('Created user model and converted to domain entity');
         
         if (attempts > 1) {
           _eventController.add(RetrySuccess(ApiConfig.operations.auth.register, attempts));
         }
         
-        print('🔍 [Debug] Adding OperationSuccess event');
+        dprint('Adding OperationSuccess event');
         _eventController.add(OperationSuccess(ApiConfig.operations.auth.register, user));
         
-        print('🔍 [Debug] Adding UserRegistered event');
+        dprint('Adding UserRegistered event');
         _eventController.add(UserRegistered(user, userSecret));
         
-        print('🔍 [Debug] Yielding user and completing');
+        dprint('Yielding user and completing');
         yield user;
-        print('🔍 [Debug] Registration complete');
+        dprint('Registration complete');
       } catch (e) {
-        print('❌ [API Error] Failed to process response: ${e.toString()}');
+        eprint('Failed to process response: ${e.toString()}');
         throw Exception('Failed to process server response: ${e.toString()}');
       }
     } catch (e) {
@@ -215,9 +216,9 @@ class UserDataSourceImpl implements UserDataSource {
           final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.token}');
           final body = json.encode({ApiConfig.keys.auth.userSecret: userSecret});
           
-          print('🌐 [API Request] POST $url');
-          print('📤 [Request Headers] ${ApiConfig.headers.json}');
-          print('📦 [Request Body] $body');
+          iprint('API Request: POST $url', '🌐');
+          iprint('Request Headers: ${ApiConfig.headers.json}', '📤');
+          iprint('Request Body: $body', '📦');
           
           final response = await client.post(
             url,
@@ -225,25 +226,25 @@ class UserDataSourceImpl implements UserDataSource {
             body: body,
           );
 
-          print('📥 [API Response] Status: ${response.statusCode}');
-          print('📦 [Response Body Length] ${response.body.length} bytes');
-          print('📦 [Response Body] Text: ${response.body}');
+          iprint('API Response Status: ${response.statusCode}', '📥');
+          iprint('Response Body Length: ${response.body.length} bytes', '📦');
+          iprint('Response Body Text: ${response.body}', '📦');
 
           if (response.statusCode == 200) {
             try {
               final responseData = json.decode(response.body);
               if (!responseData.containsKey('data')) {
-                print('❌ [API Error] Invalid response format: missing data field');
+                eprint('Invalid response format: missing data field');
                 throw Exception('Invalid response format from server');
               }
               final data = responseData['data'];
               if (!data.containsKey(ApiConfig.keys.auth.accessToken)) {
-                print('❌ [API Error] Invalid response format: missing access_token field');
+                eprint('Invalid response format: missing access_token field');
                 throw Exception('Invalid response format from server');
               }
               return response;
             } catch (e) {
-              print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+              eprint('Invalid JSON response: ${e.toString()}');
               throw Exception('Invalid response format from server');
             }
           } else {
@@ -255,10 +256,10 @@ class UserDataSourceImpl implements UserDataSource {
             }
             
             if (response.statusCode >= 500) {
-              print('❌ [API Error] Server error: $error');
+              eprint('Server error: $error');
               throw http.ClientException('Service unavailable');
             }
-            print('❌ [API Error] Client error: $error');
+            eprint('Client error: $error');
             throw Exception(error);
           }
         },
@@ -290,26 +291,26 @@ class UserDataSourceImpl implements UserDataSource {
   @override
   Stream<User> getCurrentUser() async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.auth.getCurrentUser));
-    print('🔍 [Debug] Starting getCurrentUser flow');
+    dprint('Starting getCurrentUser flow');
 
     try {
       final token = await cachedAccessToken;
       if (token == null) {
-        print('❌ [Error] No access token available');
+        eprint('No access token available');
         throw Exception('No access token available');
       }
 
       final userSecret = await cachedUserSecret;
       if (userSecret == null) {
-        print('❌ [Error] No user secret available for token refresh');
+        eprint('No user secret available for token refresh');
         throw Exception('No user secret available for token refresh');
       }
 
       try {
-        print('🔍 [Debug] Using token: ${token.length > 10 ? "${token.substring(0, 10)}..." : token}');
+        dprint('Using token: ${token.length > 10 ? "${token.substring(0, 10)}..." : token}');
         final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.me}');
-        print('🌐 [API Request] GET $url');
-        print('📤 [Request Headers] Authorization: Bearer ${token.length > 10 ? "${token.substring(0, 10)}..." : token}');
+        iprint('API Request: GET $url', '🌐');
+        iprint('Request Headers Authorization: Bearer ${token.length > 10 ? "${token.substring(0, 10)}..." : token}', '📤');
         
         final response = await client.get(
           url,
@@ -319,27 +320,27 @@ class UserDataSourceImpl implements UserDataSource {
           },
         );
 
-        print('📥 [API Response] Status: ${response.statusCode}');
-        print('📦 [Response Body Length] ${response.body.length} bytes');
-        print('📦 [Response Body] Text: ${response.body}');
+        iprint('API Response Status: ${response.statusCode}', '📥');
+        iprint('Response Body Length: ${response.body.length} bytes', '📦');
+        iprint('Response Body Text: ${response.body}', '📦');
 
         if (response.statusCode == 200) {
           try {
             final responseData = json.decode(response.body);
-            print('🔍 [Debug] Parsed response data: $responseData');
+            dprint('Parsed response data: $responseData');
             if (!responseData.containsKey('data')) {
-              print('❌ [API Error] Invalid response format: missing data field');
+              eprint('Invalid response format: missing data field');
               throw Exception('Invalid response format from server');
             }
             final data = responseData['data'];
             final user = UserModel.fromJson(data).toDomain();
-            print('🔍 [Debug] Successfully converted to user model');
+            dprint('Successfully converted to user model');
             _eventController.add(CurrentUserRetrieved(user));
-            print('🔍 [Debug] Emitted CurrentUserRetrieved event');
+            dprint('Emitted CurrentUserRetrieved event');
             yield user;
-            print('🔍 [Debug] Yielded user object');
+            dprint('Yielded user object');
           } catch (e) {
-            print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+            eprint('Invalid JSON response: ${e.toString()}');
             throw Exception('Invalid response format from server');
           }
         } else {
@@ -351,10 +352,10 @@ class UserDataSourceImpl implements UserDataSource {
           }
           
           if (response.statusCode == 401) {
-            print('🔄 [Debug] Token expired, attempting refresh');
+            dprint('Token expired, attempting refresh');
             // Try to refresh token
             await for (final newToken in obtainToken(userSecret)) {
-              print('✅ [Debug] Token refreshed successfully');
+              dprint('Token refreshed successfully');
               // Retry with new token
               final retryResponse = await client.get(
                 url,
@@ -374,14 +375,14 @@ class UserDataSourceImpl implements UserDataSource {
             }
             throw Exception('Token refresh failed');
           } else if (response.statusCode >= 500) {
-            print('❌ [API Error] Server error: $error');
+            eprint('Server error: $error');
             throw http.ClientException('Service unavailable');
           }
-          print('❌ [API Error] Client error: $error');
+          eprint('Client error: $error');
           throw Exception(error);
         }
       } catch (e) {
-        print('❌ [Error] Failed to get current user: ${e.toString()}');
+        eprint('Failed to get current user: ${e.toString()}');
         _eventController.add(OperationFailure(
           ApiConfig.operations.auth.getCurrentUser,
           e.toString(),
@@ -389,7 +390,7 @@ class UserDataSourceImpl implements UserDataSource {
         rethrow;
       }
     } catch (e) {
-      print('❌ [Error] Failed to get current user: ${e.toString()}');
+      eprint('Failed to get current user: ${e.toString()}');
       _eventController.add(OperationFailure(
         ApiConfig.operations.auth.getCurrentUser,
         e.toString(),
@@ -422,56 +423,56 @@ class UserDataSourceImpl implements UserDataSource {
     Future<void> Function()? onRefreshSuccess,
   ) async {
     try {
-      print('🔍 [Debug] Starting executeWithRefresh');
-      print('🔍 [Debug] Executing initial API call');
+      dprint('Starting executeWithRefresh');
+      dprint('Executing initial API call');
       return await apiCall();
     } catch (e) {
-      print('⚠️ [Debug] API call failed: ${e.toString()}');
+      wprint('API call failed: ${e.toString()}');
       if (e.toString().contains('Token expired') || e.toString().contains('401') || e.toString().contains('403')) {
-        print('🔄 [Debug] Token expired, attempting refresh');
+        dprint('Token expired, attempting refresh');
         // Try to refresh token
         final userSecret = await cachedUserSecret;
         if (userSecret == null) {
-          print('❌ [Error] No user secret available for token refresh');
+          eprint('No user secret available for token refresh');
           throw Exception('No user secret available for token refresh');
         }
 
-        print('🔍 [Debug] Checking refresh lock status');
+        dprint('Checking refresh lock status');
         // Use lock to prevent multiple concurrent refreshes
         await synchronized(_tokenRefreshLock, () async {
-          print('🔍 [Debug] Inside synchronized block');
+          dprint('Inside synchronized block');
           if (_isRefreshing) {
-            print('🔍 [Debug] Token refresh already in progress, waiting...');
+            dprint('Token refresh already in progress, waiting...');
             // Wait for other refresh to complete
             while (_isRefreshing) {
               await Future.delayed(Duration(milliseconds: 100));
-              print('🔄 [Debug] Still waiting for token refresh...');
+              dprint('Still waiting for token refresh...');
             }
           } else {
-            print('🔍 [Debug] Starting token refresh');
+            dprint('Starting token refresh');
             _isRefreshing = true;
             try {
-              print('🔍 [Debug] Calling obtainToken');
+              dprint('Calling obtainToken');
               await obtainToken(userSecret).first;
-              print('✅ [Debug] Token refresh successful');
+              dprint('Token refresh successful');
               if (onRefreshSuccess != null) {
-                print('🔍 [Debug] Executing onRefreshSuccess callback');
+                dprint('Executing onRefreshSuccess callback');
                 await onRefreshSuccess();
               }
             } catch (e) {
-              print('❌ [Error] Token refresh failed: ${e.toString()}');
+              eprint('Token refresh failed: ${e.toString()}');
               rethrow;
             } finally {
-              print('🔍 [Debug] Resetting refresh flag');
+              dprint('Resetting refresh flag');
               _isRefreshing = false;
             }
           }
         });
 
-        print('🔍 [Debug] Retrying original API call after token refresh');
+        dprint('Retrying original API call after token refresh');
         return await apiCall();
       }
-      print('❌ [Error] Non-token-related error: ${e.toString()}');
+      eprint('Non-token-related error: ${e.toString()}');
       rethrow;
     }
   }
@@ -522,15 +523,15 @@ Future<T> synchronized<T>(
   final lockObj = _locks[lock] as _Lock;
   
   try {
-    print('🔍 [Debug] Waiting for lock');
+    dprint('Waiting for lock');
     await lockObj.acquire();
-    print('🔍 [Debug] Lock acquired');
+    dprint('Lock acquired');
     
     final result = await callback();
-    print('🔍 [Debug] Operation completed successfully');
+    dprint('Operation completed successfully');
     return result;
   } finally {
-    print('🔍 [Debug] Releasing lock');
+    dprint('Releasing lock');
     lockObj.release();
     if (!lockObj.isLocked) {
       _locks.remove(lock);
