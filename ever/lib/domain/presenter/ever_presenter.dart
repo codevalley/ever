@@ -1,0 +1,97 @@
+import '../entities/user.dart';
+import '../entities/note.dart';
+import '../entities/task.dart';
+
+/// Abstract interface for Ever presentation logic
+///
+/// This abstraction allows for multiple UI implementations while maintaining
+/// separation from the domain layer. Implementations can include:
+/// - Flutter UI implementation
+/// - CLI implementation
+/// - Web implementation
+/// - etc.
+abstract class EverPresenter {
+  /// Stream of the current state
+  Stream<EverState> get state;
+
+  /// Initialize the presenter
+  Future<void> initialize();
+
+  /// Authentication Actions
+  Future<void> register(String username);
+  Future<void> login(String userSecret);
+  Future<void> logout();
+  Future<void> refreshSession();
+
+  /// User Actions
+  Future<void> getCurrentUser();
+
+  /// Note Actions
+  Future<void> createNote(String title, String content);
+  Future<void> updateNote(String noteId, {String? title, String? content});
+  Future<void> deleteNote(String noteId);
+  Future<void> getNotes();
+
+  /// Task Actions
+  Future<void> createTask(String title, DateTime dueDate);
+  Future<void> updateTask(String taskId, {String? title, DateTime? dueDate, bool? completed});
+  Future<void> deleteTask(String taskId);
+  Future<void> getTasks();
+
+  /// General Actions
+  Future<void> refresh();
+  Future<void> dispose();
+}
+
+/// Represents the state of the Ever UI
+class EverState {
+  final bool isLoading;
+  final User? currentUser;
+  final List<Note> notes;
+  final List<Task> tasks;
+  final String? error;
+  final bool isAuthenticated;
+
+  const EverState({
+    this.isLoading = false,
+    this.currentUser,
+    this.notes = const [],
+    this.tasks = const [],
+    this.error,
+    this.isAuthenticated = false,
+  });
+
+  /// Create initial state
+  factory EverState.initial() => const EverState();
+
+  /// Create loading state
+  factory EverState.loading() => const EverState(isLoading: true);
+
+  /// Create error state
+  factory EverState.error(String message) => EverState(error: message);
+
+  /// Create authenticated state
+  factory EverState.authenticated(User user) => EverState(
+        currentUser: user,
+        isAuthenticated: true,
+      );
+
+  /// Create a copy of this state with some fields replaced
+  EverState copyWith({
+    bool? isLoading,
+    User? currentUser,
+    List<Note>? notes,
+    List<Task>? tasks,
+    String? error,
+    bool? isAuthenticated,
+  }) {
+    return EverState(
+      isLoading: isLoading ?? this.isLoading,
+      currentUser: currentUser ?? this.currentUser,
+      notes: notes ?? this.notes,
+      tasks: tasks ?? this.tasks,
+      error: error ?? this.error,
+      isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+    );
+  }
+} 

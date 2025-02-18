@@ -5,17 +5,17 @@ import '../../core/user_events.dart';
 import '../../repositories/user_repository.dart';
 import '../base_usecase.dart';
 
-/// Parameters for obtaining an access token
-class ObtainTokenParams {
+/// Parameters for login operation
+class LoginParams {
   /// User secret obtained during registration
   /// Used to obtain new access tokens
   final String userSecret;
 
-  const ObtainTokenParams({
+  const LoginParams({
     required this.userSecret,
   });
 
-  /// Validate token parameters
+  /// Validate login parameters
   String? validate() {
     final trimmed = userSecret.trim();
     if (trimmed.isEmpty) {
@@ -32,7 +32,7 @@ class ObtainTokenParams {
   }
 }
 
-/// Use case for obtaining an access token
+/// Use case for user login
 /// 
 /// Flow:
 /// 1. Validates the user secret
@@ -43,12 +43,12 @@ class ObtainTokenParams {
 ///    - [OperationFailure]: When validation or token acquisition fails
 ///    - [TokenExpiring]: When token is about to expire
 ///    - [TokenExpired]: When token has expired
-class ObtainTokenUseCase extends BaseUseCase<ObtainTokenParams> {
+class LoginUseCase extends BaseUseCase<LoginParams> {
   final UserRepository _repository;
   final _eventController = StreamController<DomainEvent>.broadcast();
   StreamSubscription? _repositorySubscription;
 
-  ObtainTokenUseCase(this._repository) {
+  LoginUseCase(this._repository) {
     // Listen to repository events and forward relevant ones
     _repositorySubscription = _repository.events.listen(_eventController.add);
   }
@@ -57,12 +57,12 @@ class ObtainTokenUseCase extends BaseUseCase<ObtainTokenParams> {
   Stream<DomainEvent> get events => _eventController.stream;
 
   @override
-  void execute(ObtainTokenParams params) async {
+  void execute(LoginParams params) async {
     // Validate input parameters
     final validationError = params.validate();
     if (validationError != null) {
       _eventController.add(OperationFailure(
-        'obtain_token',
+        'login',
         validationError,
       ));
       return;

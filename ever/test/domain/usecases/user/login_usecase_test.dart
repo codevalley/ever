@@ -13,7 +13,7 @@ import 'login_usecase_test.mocks.dart';
 
 void main() {
   late MockUserRepository mockRepository;
-  late ObtainTokenUseCase useCase;
+  late LoginUseCase useCase;
   late StreamController<DomainEvent> repositoryEvents;
   late StreamController<String> tokenStream;
 
@@ -23,7 +23,7 @@ void main() {
     tokenStream = StreamController<String>();
     
     when(mockRepository.events).thenAnswer((_) => repositoryEvents.stream);
-    useCase = ObtainTokenUseCase(mockRepository);
+    useCase = LoginUseCase(mockRepository);
   });
 
   tearDown(() {
@@ -36,7 +36,7 @@ void main() {
     final events = <DomainEvent>[];
     final subscription = useCase.events.listen(events.add);
 
-    useCase.execute(ObtainTokenParams(userSecret: '  '));
+    useCase.execute(LoginParams(userSecret: '  '));
     await Future.delayed(Duration(milliseconds: 10));
 
     expect(events, hasLength(1));
@@ -50,7 +50,7 @@ void main() {
     final events = <DomainEvent>[];
     final subscription = useCase.events.listen(events.add);
 
-    useCase.execute(ObtainTokenParams(userSecret: 'abc123'));
+    useCase.execute(LoginParams(userSecret: 'abc123'));
     await Future.delayed(Duration(milliseconds: 10));
 
     expect(events, hasLength(1));
@@ -65,7 +65,7 @@ void main() {
     final events = <DomainEvent>[];
     final subscription = useCase.events.listen(events.add);
 
-    useCase.execute(ObtainTokenParams(userSecret: '12345678'));
+    useCase.execute(LoginParams(userSecret: '12345678'));
     await Future.delayed(Duration(milliseconds: 10));
 
     expect(events, hasLength(1));
@@ -83,10 +83,10 @@ void main() {
     when(mockRepository.obtainToken(any))
         .thenAnswer((_) => tokenStream.stream);
 
-    useCase.execute(ObtainTokenParams(userSecret: 'validPass123'));
+    useCase.execute(LoginParams(userSecret: 'validPass123'));
     
     // Repository emits progress
-    repositoryEvents.add(OperationInProgress('obtain_token'));
+    repositoryEvents.add(OperationInProgress('login'));
     await Future.delayed(Duration(milliseconds: 10));
 
     // Repository emits success with token
@@ -96,7 +96,7 @@ void main() {
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, 'obtain_token');
+    expect((events[0] as OperationInProgress).operation, 'login');
     expect(events[1], isA<TokenObtained>());
     expect((events[1] as TokenObtained).token, 'token123');
 
@@ -110,9 +110,9 @@ void main() {
     when(mockRepository.obtainToken(any))
         .thenAnswer((_) => Stream.error('Authentication failed'));
 
-    useCase.execute(ObtainTokenParams(userSecret: 'validPass123'));
+    useCase.execute(LoginParams(userSecret: 'validPass123'));
     
-    repositoryEvents.add(OperationFailure('obtain_token', 'Authentication failed'));
+    repositoryEvents.add(OperationFailure('login', 'Authentication failed'));
     await Future.delayed(Duration(milliseconds: 10));
 
     expect(events, hasLength(1));
