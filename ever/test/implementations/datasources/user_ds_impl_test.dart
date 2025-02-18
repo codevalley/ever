@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:isar/isar.dart';
 import 'package:mockito/mockito.dart';
 import 'package:mockito/annotations.dart';
 
@@ -14,25 +13,15 @@ import 'package:ever/domain/entities/user.dart';
 import 'package:ever/implementations/config/api_config.dart';
 import 'package:ever/implementations/config/error_messages.dart';
 import 'package:ever/implementations/datasources/user_ds_impl.dart';
-import 'package:ever/implementations/models/auth_credentials.dart';
+import 'package:ever/domain/core/local_cache.dart';
 
 import 'user_ds_impl_test.mocks.dart';
 
-class MockIsarCollection extends Mock implements IsarCollection<AuthCredentials> {
-  @override
-  Future<int> put(AuthCredentials object) async => 1;
-  
-  @override
-  Future<AuthCredentials?> get(int id) async => 
-    id == 1 ? (AuthCredentials()..id = 1) : null;
-}
-
-@GenerateMocks([http.Client, Isar])
+@GenerateMocks([http.Client, LocalCache])
 void main() {
   group('UserDataSourceImpl with Retry', () {
     late MockClient client;
-    late MockIsar isar;
-    late MockIsarCollection collection;
+    late MockLocalCache mockCache;
     late UserDataSourceImpl dataSource;
     late List<DomainEvent> emittedEvents;
     
@@ -45,18 +34,21 @@ void main() {
 
     setUp(() {
       client = MockClient();
-      isar = MockIsar();
-      collection = MockIsarCollection();
+      mockCache = MockLocalCache();
       emittedEvents = [];
 
-      // Setup Isar mocks
-      when(isar.writeTxn<void>(any)).thenAnswer((i) => i.positionalArguments[0]());
-      when(isar.collection<AuthCredentials>()).thenReturn(collection);
+      // Setup cache mocks
+      when(mockCache.initialize()).thenAnswer((_) async {});
+      when(mockCache.get<String>('userSecret')).thenAnswer((_) async => null);
+      when(mockCache.get<String>('accessToken')).thenAnswer((_) async => null);
+      when(mockCache.get<String>('tokenExpiresAt')).thenAnswer((_) async => null);
+      when(mockCache.set(any, any)).thenAnswer((_) async {});
+      when(mockCache.clear()).thenAnswer((_) async {});
 
       // Create data source
       dataSource = UserDataSourceImpl(
-        isar: isar,
         client: client,
+        cache: mockCache,
         retryConfig: testConfig,
         circuitBreakerConfig: CircuitBreakerConfig(
           failureThreshold: 3,

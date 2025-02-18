@@ -1,13 +1,18 @@
 /// Configuration for API endpoints and settings
 class ApiConfig {
   /// Base URL for the API
-  static const baseUrl = 'https://api.friday.com';
+  static String baseUrl = 'https://api.friday.com';
 
   /// API version prefix
   static const apiVersion = 'v1';
 
   /// Full API base URL with version
   static String get apiBaseUrl => '$baseUrl/$apiVersion';
+
+  /// Update the base URL
+  static void updateBaseUrl(String url) {
+    baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
 
   /// API endpoints
   static const endpoints = _Endpoints();

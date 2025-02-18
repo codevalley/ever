@@ -1,17 +1,18 @@
 import 'dart:async';
 
 import 'package:rxdart/rxdart.dart';
-import '../../domain/core/events.dart';
-import '../../domain/core/user_events.dart';
-import '../../domain/presenter/ever_presenter.dart';
-import '../../domain/usecases/user/get_current_user_usecase.dart';
-import '../../domain/usecases/user/login_usecase.dart';
-import '../../domain/usecases/user/refresh_token_usecase.dart';
-import '../../domain/usecases/user/register_usecase.dart';
-import '../../domain/usecases/user/sign_out_usecase.dart';
 
-/// Flutter implementation of the Ever presenter
-class FlutterEverPresenter implements EverPresenter {
+import '../core/events.dart';
+import '../core/user_events.dart';
+import '../usecases/user/get_current_user_usecase.dart';
+import '../usecases/user/login_usecase.dart';
+import '../usecases/user/refresh_token_usecase.dart';
+import '../usecases/user/register_usecase.dart';
+import '../usecases/user/sign_out_usecase.dart';
+import 'ever_presenter.dart';
+
+/// CLI implementation of the Ever presenter
+class CliPresenter implements EverPresenter {
   final RegisterUseCase _registerUseCase;
   final LoginUseCase _loginUseCase;
   final SignOutUseCase _signOutUseCase;
@@ -21,7 +22,7 @@ class FlutterEverPresenter implements EverPresenter {
   final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
   final List<StreamSubscription> _subscriptions = [];
 
-  FlutterEverPresenter({
+  CliPresenter({
     required RegisterUseCase registerUseCase,
     required LoginUseCase loginUseCase,
     required SignOutUseCase signOutUseCase,
@@ -59,7 +60,7 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   void _handleUserEvents(DomainEvent event) {
-    print('🔍 [Debug] Presenter handling event: ${event.runtimeType}');
+    print('🔍 [Debug] CLI Presenter handling event: ${event.runtimeType}');
     
     if (event is CurrentUserRetrieved) {
       _updateState(
@@ -71,6 +72,9 @@ class FlutterEverPresenter implements EverPresenter {
         ),
       );
     } else if (event is UserRegistered) {
+      print('🔍 [Debug] CLI Presenter handling UserRegistered event');
+      // Cache the user secret when registering
+      _cacheUserSecret(event.userSecret);
       _updateState(
         _stateController.value.copyWith(
           isLoading: false,
@@ -94,6 +98,8 @@ class FlutterEverPresenter implements EverPresenter {
         ),
       );
     } else if (event is UserLoggedOut) {
+      // Clear cached secret on logout
+      _clearCachedUserSecret();
       _updateState(
         EverState.initial(),
       );
@@ -101,11 +107,13 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   void _handleTokenEvents(DomainEvent event) {
+    print('🔍 [Debug] CLI Presenter handling token event: ${event.runtimeType}');
     if (event is TokenExpired) {
       _updateState(
         EverState.initial(),
       );
     } else if (event is TokenObtained || event is TokenRefreshed) {
+      print('🔍 [Debug] Token obtained, getting current user');
       // Keep loading state true while getting user
       _updateState(
         _stateController.value.copyWith(
@@ -126,8 +134,87 @@ class FlutterEverPresenter implements EverPresenter {
 
   @override
   Future<void> login(String userSecret) async {
+    print('🔍 [Debug] Starting login process');
     _updateState(EverState.initial().copyWith(isLoading: true));
-    _loginUseCase.execute(LoginParams(userSecret: userSecret));
+    
+    try {
+      // First obtain token
+      print('🔍 [Debug] Obtaining token');
+      _loginUseCase.execute(LoginParams(userSecret: userSecret));
+      
+      // Wait for token events to be processed
+      var tokenObtained = false;
+      var attempts = 0;
+      while (!tokenObtained && attempts < 3) {
+        attempts++;
+        try {
+          await for (final event in _loginUseCase.events.timeout(Duration(seconds: 5))) {
+            if (event is TokenObtained) {
+              print('🔍 [Debug] Token obtained in login flow');
+              tokenObtained = true;
+              break;
+            } else if (event is OperationFailure) {
+              throw Exception(event.error);
+            }
+          }
+        } catch (e) {
+          if (attempts >= 3) {
+            throw Exception('Failed to obtain token after multiple attempts');
+          }
+          // Continue to next attempt
+          await Future.delayed(Duration(milliseconds: 100));
+        }
+      }
+      
+      if (!tokenObtained) {
+        throw Exception('Failed to obtain token');
+      }
+
+      // Now get current user
+      print('🔍 [Debug] Getting current user info');
+      print('🔍 [Debug] Executing getCurrentUserUseCase');
+      _getCurrentUserUseCase.execute();
+      
+      var userRetrieved = false;
+      attempts = 0;
+      
+      while (!userRetrieved && attempts < 3) {
+        attempts++;
+        try {
+          print('🔍 [Debug] Waiting for user info (attempt $attempts)');
+          await for (final event in _getCurrentUserUseCase.events.timeout(Duration(seconds: 5))) {
+            print('🔍 [Debug] Received event in getCurrentUser flow: ${event.runtimeType}');
+            if (event is CurrentUserRetrieved) {
+              print('🔍 [Debug] User info retrieved successfully');
+              userRetrieved = true;
+              break;
+            } else if (event is OperationFailure) {
+              print('❌ [Error] Failed to get user info: ${event.error}');
+              throw Exception(event.error);
+            }
+          }
+        } catch (e) {
+          print('⚠️ [Warning] Get user attempt $attempts failed: ${e.toString()}');
+          if (attempts >= 3) {
+            throw Exception('Failed to get user info after multiple attempts');
+          }
+          // Continue to next attempt
+          await Future.delayed(Duration(milliseconds: 100));
+        }
+      }
+      
+      if (!userRetrieved) {
+        throw Exception('Failed to get user info');
+      }
+    } catch (e) {
+      print('❌ [Error] Login failed: ${e.toString()}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+    }
   }
 
   @override
@@ -150,56 +237,47 @@ class FlutterEverPresenter implements EverPresenter {
 
   @override
   Future<void> createNote(String title, String content) async {
-    // TODO: Implement when note usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> updateNote(String noteId, {String? title, String? content}) async {
-    // TODO: Implement when note usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> deleteNote(String noteId) async {
-    // TODO: Implement when note usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> getNotes() async {
-    // TODO: Implement when note usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> createTask(String title, DateTime dueDate) async {
-    // TODO: Implement when task usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> updateTask(String taskId, {String? title, DateTime? dueDate, bool? completed}) async {
-    // TODO: Implement when task usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> deleteTask(String taskId) async {
-    // TODO: Implement when task usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> getTasks() async {
-    // TODO: Implement when task usecases are ready
     throw UnimplementedError();
   }
 
   @override
   Future<void> refresh() async {
     await getCurrentUser();
-    // TODO: Add refresh for notes and tasks when implemented
   }
 
   @override
@@ -208,5 +286,21 @@ class FlutterEverPresenter implements EverPresenter {
       await subscription.cancel();
     }
     await _stateController.close();
+  }
+
+  // Cache for user secret
+  String? _cachedUserSecret;
+
+  void _cacheUserSecret(String secret) {
+    _cachedUserSecret = secret;
+  }
+
+  void _clearCachedUserSecret() {
+    _cachedUserSecret = null;
+  }
+
+  @override
+  Future<String?> getCachedUserSecret() async {
+    return _cachedUserSecret;
   }
 } 

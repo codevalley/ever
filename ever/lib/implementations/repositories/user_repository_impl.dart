@@ -36,6 +36,10 @@ class UserRepositoryImpl implements UserRepository {
       if (event is OperationSuccess) {
         if (event.data is User) {
           _handleUserSuccess(event.data as User);
+        } else if (event.data is String && event.operation == ApiConfig.operations.auth.obtainToken) {
+          // Handle token success
+          _currentToken = event.data as String;
+          _tokenExpiresAt = DateTime.now().add(ApiConfig.tokenConfig.tokenLifetime);
         } else {
           _handleOperationFailure('Unexpected data type from data source');
         }

@@ -41,6 +41,9 @@ abstract class EverPresenter {
   /// General Actions
   Future<void> refresh();
   Future<void> dispose();
+
+  /// Get cached user secret if available
+  Future<String?> getCachedUserSecret();
 }
 
 /// Represents the state of the Ever UI

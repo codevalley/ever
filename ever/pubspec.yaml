@@ -56,10 +56,17 @@ dependencies:
   meta: ^1.16.0
   rxdart: ^0.28.0
 
+  # CLI specific
+  args: ^2.4.2         # Command line argument parsing
+  cli_util: ^0.4.1     # CLI utilities
+  io: ^1.0.4          # I/O utilities
+  mason_logger: ^0.2.11  # Beautiful CLI logging/progress
+  ansi_styles: ^0.3.2+1  # Terminal styling
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  isar_generator: ^3.1.0
+  isar_generator: ^3.1.0+1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

@@ -2,349 +2,392 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:isar/isar.dart';
-import 'package:synchronized/synchronized.dart';
-import 'package:meta/meta.dart';
 
+import '../../domain/core/circuit_breaker.dart';
 import '../../domain/core/events.dart';
+import '../../domain/core/local_cache.dart';
 import '../../domain/core/retry_config.dart';
 import '../../domain/core/retry_events.dart';
-import '../../domain/core/service_events.dart';
 import '../../domain/core/user_events.dart';
 import '../../domain/datasources/user_ds.dart';
 import '../../domain/entities/user.dart';
 import '../config/api_config.dart';
-import '../config/error_messages.dart';
-import '../models/auth_credentials.dart';
 import '../models/user_model.dart';
-import '../../domain/core/circuit_breaker.dart';
 
-/// Implementation of UserDataSource using HTTP and Isar
+/// Implementation of UserDataSource using HTTP and local cache
 class UserDataSourceImpl implements UserDataSource {
-  final Isar _isar;
-  final http.Client _client;
-  final StreamController<DomainEvent> _eventController;
-  final Lock _refreshLock;
-  final RetryConfig _retryConfig;
-  final CircuitBreaker _circuitBreaker;
-  String? _currentToken;
+  final http.Client client;
+  final LocalCache cache;
+  final RetryConfig retryConfig;
+  final CircuitBreakerConfig circuitBreakerConfig;
+  
+  final _eventController = StreamController<DomainEvent>.broadcast();
+  final _tokenRefreshLock = Object();
+  bool _isRefreshing = false;
 
   UserDataSourceImpl({
-    required Isar isar,
-    required http.Client client,
-    required RetryConfig retryConfig,
-    required CircuitBreakerConfig circuitBreakerConfig,
-  }) : _isar = isar,
-       _client = client,
-       _retryConfig = retryConfig,
-       _eventController = StreamController<DomainEvent>.broadcast(),
-       _refreshLock = Lock(),
-       _circuitBreaker = CircuitBreaker(circuitBreakerConfig) {
-    _initialize();
-  }
+    required this.client,
+    required this.cache,
+    required this.retryConfig,
+    required this.circuitBreakerConfig,
+  });
 
-  // Public interface
   @override
   Stream<DomainEvent> get events => _eventController.stream;
 
   @override
-  bool get isRefreshing => _refreshLock.locked;
+  bool get isRefreshing => _isRefreshing;
+
+  @override
+  Future<void> initialize() async {
+    await cache.initialize();
+  }
 
   @override
   Future<String?> get cachedUserSecret async {
-    final credentials = await _isar.collection<AuthCredentials>().get(1);
-    return credentials?.userSecret;
+    return await cache.get<String>('userSecret');
   }
 
   @override
   Future<String?> get cachedAccessToken async {
-    final credentials = await _isar.collection<AuthCredentials>().get(1);
-    return credentials?.accessToken;
+    return await cache.get<String>('accessToken');
   }
 
   @override
   Future<DateTime?> get tokenExpiresAt async {
-    final credentials = await _isar.collection<AuthCredentials>().get(1);
-    return credentials?.tokenExpiresAt;
+    final expiresAt = await cache.get<String>('tokenExpiresAt');
+    return expiresAt != null ? DateTime.parse(expiresAt) : null;
   }
 
-  /// Get the circuit breaker instance (for testing only)
-  @visibleForTesting
-  CircuitBreaker get circuitBreaker => _circuitBreaker;
-
-  void _initialize() {
-    // Forward circuit breaker events to domain events
-    _circuitBreaker.events.listen((event) {
-      switch (event.type) {
-        case 'transition_to_open':
-          _eventController.add(ServiceDegraded(event.timestamp));
-          break;
-        case 'transition_to_half_open':
-          // No event needed for half-open state
-          break;
-        case 'transition_to_closed':
-          _eventController.add(ServiceRestored(event.timestamp));
-          break;
-        case 'operation_rejected':
-          _eventController.add(OperationRejected('Service unavailable'));
-          break;
-      }
-    });
-  }
-
-  @override
-  Stream<User> create(User entity) => 
-    throw UnsupportedError(ErrorMessages.user.createNotSupported);
-
-  @override
-  Stream<void> delete(String id) =>
-    throw UnsupportedError(ErrorMessages.user.deleteNotSupported);
-
-  @override
-  Stream<List<User>> list({Map<String, dynamic>? filters}) =>
-    throw UnsupportedError(ErrorMessages.user.listNotSupported);
-
-  @override
-  Stream<User> read(String id) =>
-    throw UnsupportedError(ErrorMessages.user.readNotSupported);
-
-  @override
-  Stream<User> update(User entity) =>
-    throw UnsupportedError(ErrorMessages.user.updateNotSupported);
-
-  @override
-  bool isOperationSupported(String operation) {
-    switch (operation) {
-      case 'register':
-      case 'getCurrentUser':
-      case 'obtainToken':
-      case 'signOut':
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  @override
-  Future<void> initialize() async {
-    final credentials = await _isar.collection<AuthCredentials>().get(1);
-    if (credentials != null) {
-      _currentToken = credentials.accessToken;
-      // If token is expired or about to expire, refresh it
-      if (credentials.tokenExpiresAt != null && 
-          credentials.tokenExpiresAt!.isBefore(DateTime.now().add(ApiConfig.tokenConfig.refreshThreshold))) {
-        if (credentials.userSecret != null) {
-          await obtainToken(credentials.userSecret!).first;
-        }
-      }
-    }
-  }
-
-  /// Execute an operation with retry logic and event tracking
+  /// Execute an operation with retry logic
   Future<T> _executeWithRetry<T>(
     String operation,
     Future<T> Function() apiCall,
   ) async {
     var attempts = 0;
-    var delay = _retryConfig.initialDelay;
-
+    final startTime = DateTime.now();
     while (true) {
-      attempts++;
-      
       try {
-        final result = await _circuitBreaker.execute(apiCall);
-        
-        // On success, emit appropriate events
-        if (attempts > 1) {
-          _eventController.add(RetrySuccess(operation, attempts));
-        }
-        
-        return result;
+        attempts++;
+        print('🔄 [Attempt $attempts] Executing $operation');
+        return await apiCall();
       } catch (e) {
-        // Check if we've exhausted retries
-        if (attempts >= _retryConfig.maxAttempts) {
-          _eventController.add(RetryExhausted(operation, e, attempts));
+        final elapsed = DateTime.now().difference(startTime);
+        print('⚠️ [Error] $operation failed after ${elapsed.inMilliseconds}ms: $e');
+        
+        if (!retryConfig.shouldRetry(e) || attempts >= retryConfig.maxAttempts) {
+          if (attempts > 1) {
+            print('❌ [Retry Exhausted] $operation failed after $attempts attempts');
+            _eventController.add(RetryExhausted(operation, e, attempts));
+          }
           rethrow;
         }
-
-        // Emit retry attempt event and wait before next try
-        _eventController.add(RetryAttempt(operation, attempts, delay, e.toString()));
-        await Future.delayed(delay);
         
-        // Calculate next delay with exponential backoff
-        delay = Duration(milliseconds: 
-          (delay.inMilliseconds * _retryConfig.backoffFactor)
-            .round()
-            .clamp(0, _retryConfig.maxDelay.inMilliseconds)
-        );
+        final delay = retryConfig.getDelayForAttempt(attempts);
+        print('⏳ [Retry] Waiting ${delay.inMilliseconds}ms before attempt ${attempts + 1}');
+        _eventController.add(RetryAttempt(operation, attempts, delay, e));
+        await Future.delayed(delay);
       }
     }
   }
 
   @override
   Stream<User> register(String username) async* {
+    _eventController.add(OperationInProgress(ApiConfig.operations.auth.register));
+    var attempts = 0;
+
     try {
-      _eventController.add(OperationInProgress(ApiConfig.operations.auth.register));
-      
-      final response = await _executeWithRetry<http.Response>(
-        ApiConfig.operations.auth.register, 
+      final response = await _executeWithRetry(
+        ApiConfig.operations.auth.register,
         () async {
-          final response = await _client.post(
-            Uri.parse('${ApiConfig.baseUrl}${ApiConfig.endpoints.auth.register}'),
+          attempts++;
+          final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.register}');
+          final body = json.encode({ApiConfig.keys.auth.username: username});
+          
+          print('🌐 [API Request] POST $url');
+          print('📤 [Request Headers] ${ApiConfig.headers.json}');
+          print('📦 [Request Body] $body');
+          
+          final response = await client.post(
+            url,
             headers: ApiConfig.headers.json,
-            body: jsonEncode({
-              ApiConfig.keys.auth.username: username,
-            }),
+            body: body,
           );
+
+          print('📥 [API Response] Status: ${response.statusCode}');
+          print('📦 [Response Body Length] ${response.body.length} bytes');
+          print('📦 [Response Body] Raw: ${response.body.split('').map((c) => c.codeUnitAt(0).toRadixString(16).padLeft(2, '0')).join(' ')}');
+          print('📦 [Response Body] Text: ${response.body}');
 
           if (response.statusCode == 201) {
-            return response;
+            try {
+              // Validate JSON response
+              final responseData = json.decode(response.body);
+              if (!responseData.containsKey('data')) {
+                print('❌ [API Error] Invalid response format: missing data field');
+                throw Exception('Invalid response format from server');
+              }
+              return response;
+            } catch (e) {
+              print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+              throw Exception('Invalid response format from server');
+            }
+          } else {
+            String error;
+            try {
+              error = json.decode(response.body)[ApiConfig.keys.common.message] ?? 'Unknown error';
+            } catch (e) {
+              error = 'Failed to parse error message: ${response.body}';
+            }
+            
+            if (response.statusCode >= 500) {
+              print('❌ [API Error] Server error: $error');
+              throw http.ClientException('Service unavailable');
+            }
+            print('❌ [API Error] Client error: $error');
+            throw Exception(error);
           }
-
-          final error = await _handleErrorResponse(
-            ApiConfig.operations.auth.register,
-            response,
-            ErrorMessages.auth.registrationFailed
-          );
-          throw error;
-        }
+        },
       );
 
-      final data = jsonDecode(response.body)[ApiConfig.keys.common.data];
-      final userModel = UserModel.fromJson(data);
-      final user = userModel.toDomain();
-      
-      await _isar.writeTxn(() async {
-        await _isar.collection<AuthCredentials>().put(
-          AuthCredentials()
-            ..id = 1
-            ..userSecret = userModel.userSecret // store as provided
-        );
-      });
+      try {
+        final responseData = json.decode(response.body);
+        final data = responseData['data'];
+        
+        print('🔍 [Debug] Parsed response data: $data');
+        print('🔍 [Debug] Available fields: ${data.keys.join(', ')}');
+        
+        // Validate required fields
+        if (!data.containsKey(ApiConfig.keys.auth.userSecret)) {
+          throw Exception('Invalid response format: missing user_secret field');
+        }
+        if (!data.containsKey(ApiConfig.keys.user.id)) {
+          throw Exception('Invalid response format: missing id field');
+        }
+        if (!data.containsKey(ApiConfig.keys.auth.username)) {
+          throw Exception('Invalid response format: missing username field');
+        }
 
-      _eventController.add(OperationSuccess(ApiConfig.operations.auth.register, user));
-      yield user;
+        final userSecret = data[ApiConfig.keys.auth.userSecret] as String;
+        
+        // Save user secret
+        await cache.set('userSecret', userSecret);
+
+        final user = UserModel.fromJson(data).toDomain();
+        print('🔍 [Debug] Created user model and converted to domain entity');
+        
+        if (attempts > 1) {
+          _eventController.add(RetrySuccess(ApiConfig.operations.auth.register, attempts));
+        }
+        
+        print('🔍 [Debug] Adding OperationSuccess event');
+        _eventController.add(OperationSuccess(ApiConfig.operations.auth.register, user));
+        
+        print('🔍 [Debug] Adding UserRegistered event');
+        _eventController.add(UserRegistered(user, userSecret));
+        
+        print('🔍 [Debug] Yielding user and completing');
+        yield user;
+        print('🔍 [Debug] Registration complete');
+      } catch (e) {
+        print('❌ [API Error] Failed to process response: ${e.toString()}');
+        throw Exception('Failed to process server response: ${e.toString()}');
+      }
     } catch (e) {
-      final error = await _handleError(ApiConfig.operations.auth.register, e);
-      throw error;
+      _eventController.add(OperationFailure(
+        ApiConfig.operations.auth.register,
+        e.toString(),
+      ));
+      rethrow;
     }
   }
 
   @override
   Stream<String> obtainToken(String userSecret) async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.auth.obtainToken));
+    var attempts = 0;
 
     try {
-      final response = await _executeWithRetry<http.Response>(
+      final response = await _executeWithRetry(
         ApiConfig.operations.auth.obtainToken,
         () async {
-          final response = await _client.post(
-            Uri.parse('${ApiConfig.baseUrl}${ApiConfig.endpoints.auth.token}'),
-            body: jsonEncode({ApiConfig.keys.auth.userSecret: userSecret}),
+          attempts++;
+          final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.token}');
+          final body = json.encode({ApiConfig.keys.auth.userSecret: userSecret});
+          
+          print('🌐 [API Request] POST $url');
+          print('📤 [Request Headers] ${ApiConfig.headers.json}');
+          print('📦 [Request Body] $body');
+          
+          final response = await client.post(
+            url,
             headers: ApiConfig.headers.json,
+            body: body,
           );
+
+          print('📥 [API Response] Status: ${response.statusCode}');
+          print('📦 [Response Body Length] ${response.body.length} bytes');
+          print('📦 [Response Body] Text: ${response.body}');
 
           if (response.statusCode == 200) {
-            return response;
+            try {
+              final responseData = json.decode(response.body);
+              if (!responseData.containsKey('data')) {
+                print('❌ [API Error] Invalid response format: missing data field');
+                throw Exception('Invalid response format from server');
+              }
+              final data = responseData['data'];
+              if (!data.containsKey(ApiConfig.keys.auth.accessToken)) {
+                print('❌ [API Error] Invalid response format: missing access_token field');
+                throw Exception('Invalid response format from server');
+              }
+              return response;
+            } catch (e) {
+              print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+              throw Exception('Invalid response format from server');
+            }
+          } else {
+            String error;
+            try {
+              error = json.decode(response.body)[ApiConfig.keys.common.message] ?? 'Unknown error';
+            } catch (e) {
+              error = 'Failed to parse error message: ${response.body}';
+            }
+            
+            if (response.statusCode >= 500) {
+              print('❌ [API Error] Server error: $error');
+              throw http.ClientException('Service unavailable');
+            }
+            print('❌ [API Error] Client error: $error');
+            throw Exception(error);
           }
-
-          final error = await _handleErrorResponse(
-            ApiConfig.operations.auth.obtainToken,
-            response,
-            ErrorMessages.auth.authenticationFailed
-          );
-          throw error;
         },
       );
 
-      final data = jsonDecode(response.body)[ApiConfig.keys.common.data];
+      final data = json.decode(response.body)[ApiConfig.keys.common.data];
       final token = data[ApiConfig.keys.auth.accessToken] as String;
-      _currentToken = token;
       final expiresAt = DateTime.now().add(ApiConfig.tokenConfig.tokenLifetime);
       
-      await _isar.writeTxn(() async {
-        final current = await _isar.collection<AuthCredentials>().get(1);
-        await _isar.collection<AuthCredentials>().put(
-          (current ?? AuthCredentials())
-            ..id = 1
-            ..userSecret = userSecret
-            ..accessToken = token
-            ..tokenExpiresAt = expiresAt,
-        );
-      });
-      
+      // Save credentials
+      await Future.wait([
+        cache.set('userSecret', userSecret),
+        cache.set('accessToken', token),
+        cache.set('tokenExpiresAt', expiresAt.toIso8601String()),
+      ]);
+
+      if (attempts > 1) {
+        _eventController.add(RetrySuccess(ApiConfig.operations.auth.obtainToken, attempts));
+      }
+      _eventController.add(OperationSuccess(ApiConfig.operations.auth.obtainToken, token));
       _eventController.add(TokenObtained(token, expiresAt));
       yield token;
     } catch (e) {
-      final error = await _handleError(ApiConfig.operations.auth.obtainToken, e);
-      throw error;
+      _eventController.add(TokenAcquisitionFailed(e.toString()));
+      rethrow;
     }
   }
 
   @override
   Stream<User> getCurrentUser() async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.auth.getCurrentUser));
-    
+    print('🔍 [Debug] Starting getCurrentUser flow');
+    print('🔍 [Debug] Current token available: ${await cachedAccessToken != null}');
+
     try {
-      final response = await _executeWithRetry(
-        ApiConfig.operations.auth.getCurrentUser,
+      final response = await executeWithRefresh(
         () async {
-          if (_currentToken == null) {
-            throw Exception(ErrorMessages.auth.noToken);
+          final token = await cachedAccessToken;
+          if (token == null) {
+            print('❌ [Error] No access token available');
+            throw Exception('No access token available');
           }
+
+          final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.auth.me}');
+          print('🌐 [API Request] GET $url');
+          print('📤 [Request Headers] Authorization: Bearer ${token.substring(0, 10)}...');
           
-          final response = await _client.get(
-            Uri.parse('${ApiConfig.baseUrl}${ApiConfig.endpoints.auth.me}'),
-            headers: ApiConfig.headers.withAuth(_currentToken!),
+          print('🔍 [Debug] Sending request to /auth/me endpoint');
+          final response = await client.get(
+            url,
+            headers: ApiConfig.headers.withAuth(token),
           );
+          print('🔍 [Debug] Received response from /auth/me endpoint');
+
+          print('📥 [API Response] Status: ${response.statusCode}');
+          print('📦 [Response Body Length] ${response.body.length} bytes');
+          print('📦 [Response Body] Raw: ${response.body.split('').map((c) => c.codeUnitAt(0).toRadixString(16).padLeft(2, '0')).join(' ')}');
+          print('📦 [Response Body] Text: ${response.body}');
 
           if (response.statusCode == 200) {
-            return response;
+            try {
+              final responseData = json.decode(response.body);
+              print('🔍 [Debug] Parsed response data: $responseData');
+              if (!responseData.containsKey('data')) {
+                print('❌ [API Error] Invalid response format: missing data field');
+                throw Exception('Invalid response format from server');
+              }
+              return response;
+            } catch (e) {
+              print('❌ [API Error] Invalid JSON response: ${e.toString()}');
+              throw Exception('Invalid response format from server');
+            }
+          } else {
+            String error;
+            try {
+              error = json.decode(response.body)[ApiConfig.keys.common.message] ?? 'Unknown error';
+            } catch (e) {
+              error = 'Failed to parse error message: ${response.body}';
+            }
+            
+            if (response.statusCode == 401) {
+              print('❌ [API Error] Token expired or invalid');
+              throw Exception('Token expired');
+            } else if (response.statusCode >= 500) {
+              print('❌ [API Error] Server error: $error');
+              throw http.ClientException('Service unavailable');
+            }
+            print('❌ [API Error] Client error: $error');
+            throw Exception(error);
           }
-          
-          final error = await _handleErrorResponse(
-            ApiConfig.operations.auth.getCurrentUser,
-            response,
-            ErrorMessages.user.userNotFound
-          );
-          throw error;
+        },
+        () async {
+          print('🔄 [Debug] Token refreshed, retrying user info request');
         },
       );
 
-      final data = jsonDecode(response.body)[ApiConfig.keys.common.data];
-      final userModel = UserModel.fromJson(data);
-      final user = userModel.toDomain();
-      
-      _eventController.add(OperationSuccess(ApiConfig.operations.auth.getCurrentUser, user));
+      final data = json.decode(response.body)[ApiConfig.keys.common.data];
+      print('🔍 [Debug] Successfully parsed user data: $data');
+      final user = UserModel.fromJson(data).toDomain();
+      print('🔍 [Debug] Successfully converted to user model');
+      _eventController.add(CurrentUserRetrieved(user));
+      print('🔍 [Debug] Emitted CurrentUserRetrieved event');
       yield user;
+      print('🔍 [Debug] Yielded user object');
     } catch (e) {
-      final error = await _handleError(ApiConfig.operations.auth.getCurrentUser, e);
-      throw error;
+      print('❌ [Error] Failed to get current user: ${e.toString()}');
+      _eventController.add(OperationFailure(
+        ApiConfig.operations.auth.getCurrentUser,
+        e.toString(),
+      ));
+      rethrow;
     }
   }
 
   @override
   Stream<void> signOut() async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.auth.signOut));
-    
+
     try {
-      await _executeWithRetry(
-        ApiConfig.operations.auth.signOut,
-        () async {
-          await _isar.writeTxn(() async {
-            await _isar.collection<AuthCredentials>().clear();
-          });
-          _currentToken = null;
-          return null;
-        },
-      );
-      
-      _eventController.add(OperationSuccess(ApiConfig.operations.auth.signOut, null));
+      // Clear credentials
+      await cache.clear();
       _eventController.add(UserLoggedOut());
       yield null;
     } catch (e) {
-      final error = await _handleError(ApiConfig.operations.auth.signOut, e);
-      throw error;
+      _eventController.add(OperationFailure(
+        ApiConfig.operations.auth.signOut,
+        e.toString(),
+      ));
+      rethrow;
     }
   }
 
@@ -354,100 +397,150 @@ class UserDataSourceImpl implements UserDataSource {
     Future<void> Function()? onRefreshSuccess,
   ) async {
     try {
+      print('🔍 [Debug] Starting executeWithRefresh');
+      print('🔍 [Debug] Executing initial API call');
       return await apiCall();
     } catch (e) {
-      final statusCode = e is http.Response ? (e).statusCode : 
-                        (e is http.ClientException ? 0 : -1);
-                        
-      if (statusCode == 401 || statusCode == 403) {
-        // Use lock to prevent multiple simultaneous token refreshes
-        return await _refreshLock.synchronized(() async {
-          try {
-            // Double-check if token is still invalid after acquiring lock
+      print('⚠️ [Debug] API call failed: ${e.toString()}');
+      if (e.toString().contains('Token expired') || e.toString().contains('401') || e.toString().contains('403')) {
+        print('🔄 [Debug] Token expired, attempting refresh');
+        // Try to refresh token
+        final userSecret = await cachedUserSecret;
+        if (userSecret == null) {
+          print('❌ [Error] No user secret available for token refresh');
+          throw Exception('No user secret available for token refresh');
+        }
+
+        print('🔍 [Debug] Checking refresh lock status');
+        // Use lock to prevent multiple concurrent refreshes
+        await synchronized(_tokenRefreshLock, () async {
+          print('🔍 [Debug] Inside synchronized block');
+          if (_isRefreshing) {
+            print('🔍 [Debug] Token refresh already in progress, waiting...');
+            // Wait for other refresh to complete
+            while (_isRefreshing) {
+              await Future.delayed(Duration(milliseconds: 100));
+              print('🔄 [Debug] Still waiting for token refresh...');
+            }
+          } else {
+            print('🔍 [Debug] Starting token refresh');
+            _isRefreshing = true;
             try {
-              return await apiCall();
-            } catch (_) {
-              // Original error still occurs, proceed with refresh
+              print('🔍 [Debug] Calling obtainToken');
+              await obtainToken(userSecret).first;
+              print('✅ [Debug] Token refresh successful');
+              if (onRefreshSuccess != null) {
+                print('🔍 [Debug] Executing onRefreshSuccess callback');
+                await onRefreshSuccess();
+              }
+            } catch (e) {
+              print('❌ [Error] Token refresh failed: ${e.toString()}');
+              rethrow;
+            } finally {
+              print('🔍 [Debug] Resetting refresh flag');
+              _isRefreshing = false;
             }
-            
-            final credentials = await _isar.collection<AuthCredentials>().get(1);
-            if (credentials?.userSecret == null) {
-              throw Exception(ErrorMessages.auth.noUserSecret);
-            }
-            
-            // Refresh token
-            await obtainToken(credentials!.userSecret!).first;
-            if (onRefreshSuccess != null) {
-              await onRefreshSuccess();
-            }
-            
-            // Retry the original call
-            return await apiCall();
-          } catch (refreshError) {
-            // If refresh fails, ensure we emit appropriate events
-            _eventController.add(OperationFailure(
-              ApiConfig.operations.auth.refreshToken,
-              refreshError.toString()
-            ));
-            rethrow;
           }
         });
+
+        print('🔍 [Debug] Retrying original API call after token refresh');
+        return await apiCall();
       }
+      print('❌ [Error] Non-token-related error: ${e.toString()}');
       rethrow;
     }
   }
 
-  /// Handle HTTP error responses
-  /// Returns a ClientException with appropriate error message
-  Future<http.ClientException> _handleErrorResponse(String operation, http.Response response, String defaultMessage) async {
-    String message;
-    try {
-      final body = jsonDecode(response.body);
-      message = (body[ApiConfig.keys.common.message] as String?) ?? defaultMessage;
-    } catch (e) {
-      // Handle invalid JSON response
-      message = response.statusCode >= 500 ? 
-        ErrorMessages.operation.serverError : 
-        ErrorMessages.operation.invalidResponse;
-    }
-    _eventController.add(OperationFailure(operation, message));
-    await Future.delayed(Duration.zero); // Ensure events are processed
-    return http.ClientException(message);
+  @override
+  Stream<User> create(User entity) {
+    throw UnimplementedError('Create operation not supported for User entity');
   }
 
-  /// Handle general errors
-  /// Returns the original error or wraps it in an appropriate exception type
-  Future<Object> _handleError(String operation, Object error) async {
-    if (error is CircuitBreakerException) {
-      _eventController.add(OperationFailure(operation, error.message));
-      await Future.delayed(Duration.zero);
-      return error;
-    } else if (error is http.ClientException) {
-      _eventController.add(OperationFailure(operation, error.message));
-      await Future.delayed(Duration.zero);
-      return error;
-    } else if (error is TimeoutException) {
-      final message = ErrorMessages.operation.timeoutError;
-      _eventController.add(OperationFailure(operation, message));
-      await Future.delayed(Duration.zero);
-      return TimeoutException(message);
-    } else if (error is FormatException) {
-      final message = ErrorMessages.operation.invalidResponse;
-      _eventController.add(OperationFailure(operation, message));
-      await Future.delayed(Duration.zero);
-      return FormatException(message);
-    } else {
-      final message = error.toString();
-      _eventController.add(OperationFailure(operation, message));
-      await Future.delayed(Duration.zero);
-      return error;
-    }
+  @override
+  Stream<void> delete(String id) {
+    throw UnimplementedError('Delete operation not supported for User entity');
   }
+
+  @override
+  Stream<List<User>> list({Map<String, dynamic>? filters}) {
+    throw UnimplementedError('List operation not supported for User entity');
+  }
+
+  @override
+  Stream<User> read(String id) {
+    throw UnimplementedError('Read operation not supported for User entity');
+  }
+
+  @override
+  Stream<User> update(User entity) {
+    throw UnimplementedError('Update operation not supported for User entity');
+  }
+
+  @override
+  bool isOperationSupported(String operation) => false;
 
   @override
   void dispose() {
     _eventController.close();
-    _circuitBreaker.dispose();
-    _client.close();
   }
 }
+
+/// Helper function to synchronize token refresh
+Future<T> synchronized<T>(
+  Object lock,
+  Future<T> Function() callback,
+) async {
+  if (!_locks.containsKey(lock)) {
+    _locks[lock] = _Lock();
+  }
+  
+  final lockObj = _locks[lock] as _Lock;
+  
+  try {
+    print('🔍 [Debug] Waiting for lock');
+    await lockObj.acquire();
+    print('🔍 [Debug] Lock acquired');
+    
+    final result = await callback();
+    print('🔍 [Debug] Operation completed successfully');
+    return result;
+  } finally {
+    print('🔍 [Debug] Releasing lock');
+    lockObj.release();
+    if (!lockObj.isLocked) {
+      _locks.remove(lock);
+    }
+  }
+}
+
+/// Internal lock implementation
+class _Lock {
+  bool _locked = false;
+  final _waitQueue = <Completer<void>>[];
+
+  bool get isLocked => _locked;
+
+  Future<void> acquire() async {
+    if (!_locked) {
+      _locked = true;
+      return;
+    }
+
+    final completer = Completer<void>();
+    _waitQueue.add(completer);
+    await completer.future;
+  }
+
+  void release() {
+    if (!_locked) return;
+
+    if (_waitQueue.isEmpty) {
+      _locked = false;
+    } else {
+      final next = _waitQueue.removeAt(0);
+      next.complete();
+    }
+  }
+}
+
+final _locks = <Object, _Lock>{};
