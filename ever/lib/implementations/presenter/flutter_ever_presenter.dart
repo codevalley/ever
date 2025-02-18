@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:rxdart/rxdart.dart';
 import '../../domain/core/events.dart';
 import '../../domain/core/user_events.dart';
 import '../../domain/presenter/ever_presenter.dart';
@@ -17,8 +18,7 @@ class FlutterEverPresenter implements EverPresenter {
   final RefreshTokenUseCase _refreshTokenUseCase;
   final GetCurrentUserUseCase _getCurrentUserUseCase;
 
-  final _stateController = StreamController<EverState>.broadcast();
-  EverState _currentState = EverState.initial();
+  final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
   final List<StreamSubscription> _subscriptions = [];
 
   FlutterEverPresenter({
@@ -32,23 +32,24 @@ class FlutterEverPresenter implements EverPresenter {
         _signOutUseCase = signOutUseCase,
         _refreshTokenUseCase = refreshTokenUseCase,
         _getCurrentUserUseCase = getCurrentUserUseCase {
-    // Subscribe to user events
-    _subscriptions.add(
-      _getCurrentUserUseCase.events.listen(_handleUserEvents),
-    );
-
-    // Subscribe to token events
-    _subscriptions.add(
+    // Subscribe to all use case events
+    _subscriptions.addAll([
+      _registerUseCase.events.listen(_handleUserEvents),
+      _loginUseCase.events.listen(_handleUserEvents),
+      _signOutUseCase.events.listen(_handleUserEvents),
       _refreshTokenUseCase.events.listen(_handleTokenEvents),
-    );
+      _getCurrentUserUseCase.events.listen(_handleUserEvents),
+    ]);
   }
 
   @override
   Stream<EverState> get state => _stateController.stream;
 
   void _updateState(EverState newState) {
-    _currentState = newState;
-    _stateController.add(newState);
+    // Only emit state if it's different from the current state
+    if (_stateController.value != newState) {
+      _stateController.add(newState);
+    }
   }
 
   @override
@@ -60,7 +61,7 @@ class FlutterEverPresenter implements EverPresenter {
   void _handleUserEvents(DomainEvent event) {
     if (event is CurrentUserRetrieved) {
       _updateState(
-        _currentState.copyWith(
+        _stateController.value.copyWith(
           isLoading: false,
           currentUser: event.user,
           isAuthenticated: event.user != null,
@@ -69,17 +70,21 @@ class FlutterEverPresenter implements EverPresenter {
       );
     } else if (event is OperationFailure) {
       _updateState(
-        _currentState.copyWith(
+        _stateController.value.copyWith(
           isLoading: false,
           error: event.error,
         ),
       );
     } else if (event is OperationInProgress) {
       _updateState(
-        _currentState.copyWith(
+        _stateController.value.copyWith(
           isLoading: true,
           error: null,
         ),
+      );
+    } else if (event is UserLoggedOut) {
+      _updateState(
+        EverState.initial(),
       );
     }
   }
@@ -87,44 +92,48 @@ class FlutterEverPresenter implements EverPresenter {
   void _handleTokenEvents(DomainEvent event) {
     if (event is TokenExpired) {
       _updateState(
-        _currentState.copyWith(
-          isAuthenticated: false,
-          currentUser: null,
+        EverState.initial(),
+      );
+    } else if (event is TokenObtained || event is TokenRefreshed) {
+      // Keep loading state true while getting user
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: true,
+          error: null,
         ),
       );
-    } else if (event is TokenObtained) {
-      // Refresh current user when new token is obtained
-      getCurrentUser();
+      // Get current user after token is obtained
+      _getCurrentUserUseCase.execute();
     }
   }
 
   @override
   Future<void> register(String username) async {
-    _updateState(_currentState.copyWith(isLoading: true));
+    _updateState(EverState.initial().copyWith(isLoading: true));
     _registerUseCase.execute(RegisterParams(username: username));
   }
 
   @override
   Future<void> login(String userSecret) async {
-    _updateState(_currentState.copyWith(isLoading: true));
+    _updateState(EverState.initial().copyWith(isLoading: true));
     _loginUseCase.execute(LoginParams(userSecret: userSecret));
   }
 
   @override
   Future<void> logout() async {
-    _updateState(_currentState.copyWith(isLoading: true));
+    _updateState(_stateController.value.copyWith(isLoading: true));
     _signOutUseCase.execute();
   }
 
   @override
   Future<void> refreshSession() async {
-    _updateState(_currentState.copyWith(isLoading: true));
+    _updateState(EverState.initial().copyWith(isLoading: true));
     _refreshTokenUseCase.execute();
   }
 
   @override
   Future<void> getCurrentUser() async {
-    _updateState(_currentState.copyWith(isLoading: true));
+    _updateState(EverState.initial().copyWith(isLoading: true));
     _getCurrentUserUseCase.execute();
   }
 

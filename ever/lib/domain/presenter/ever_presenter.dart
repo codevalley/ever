@@ -94,4 +94,25 @@ class EverState {
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EverState &&
+          runtimeType == other.runtimeType &&
+          isLoading == other.isLoading &&
+          currentUser == other.currentUser &&
+          notes == other.notes &&
+          tasks == other.tasks &&
+          error == other.error &&
+          isAuthenticated == other.isAuthenticated;
+
+  @override
+  int get hashCode =>
+      isLoading.hashCode ^
+      currentUser.hashCode ^
+      notes.hashCode ^
+      tasks.hashCode ^
+      error.hashCode ^
+      isAuthenticated.hashCode;
 } 
