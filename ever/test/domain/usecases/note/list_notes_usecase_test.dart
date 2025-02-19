@@ -22,7 +22,9 @@ void main() {
     mockRepository = MockNoteRepository();
     useCase = ListNotesUseCase(mockRepository);
     events = [];
-    subscription = useCase.events.listen(events.add);
+    subscription = useCase.events.listen((event) {
+      events.add(event);
+    });
   });
 
   tearDown(() async {

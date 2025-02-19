@@ -4,7 +4,6 @@ import 'package:ever/domain/core/events.dart';
 import 'package:ever/domain/core/retry_config.dart';
 import 'package:ever/domain/core/circuit_breaker.dart';
 import 'package:ever/domain/datasources/note_ds.dart';
-import 'package:ever/domain/entities/note.dart';
 import 'package:ever/implementations/repositories/note_repository_impl.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
