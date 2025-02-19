@@ -1,4 +1,4 @@
-import 'dart:developer' as developer;
+import 'dart:io';
 
 /// Log levels for the application
 enum LogLevel {
@@ -65,43 +65,47 @@ void _log(LogLevel level, String message, [String? tag]) {
   final buffer = StringBuffer();
   
   if (_config.showTimestamp) {
-    buffer.write('${DateTime.now().toIso8601String()} ');
+    final now = DateTime.now();
+    final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}.${now.microsecond.toString().padLeft(6, '0')}';
+    buffer.write('$time  ');
   }
   
   if (_config.showLevel) {
-    buffer.write('[${level.toString().toUpperCase()}] ');
-  }
-  
-  if (tag != null) {
-    buffer.write('[$tag] ');
+    final levelStr = switch (level) {
+      LogLevel.debug => '[Debug]',
+      LogLevel.info => '[Info] ',
+      LogLevel.warning => '[Warn] ',
+      LogLevel.error => '[Error]',
+    };
+    buffer.write('$levelStr ');
   }
   
   buffer.write(message);
+  buffer.write('\n');
 
-  developer.log(
-    buffer.toString(),
-    time: DateTime.now(),
-    level: level.index,
-    name: tag ?? 'EVER',
-  );
+  if (level == LogLevel.error) {
+    stderr.write(buffer.toString());
+  } else {
+    stdout.write(buffer.toString());
+  }
 }
 
 /// Shorthand for debug log with emoji
 void dprint(String message, [String emoji = '🔍']) {
-  dlog('$emoji $message', 'Debug');
+  dlog('$emoji $message');
 }
 
 /// Shorthand for error log with emoji
 void eprint(String message, [String emoji = '❌']) {
-  elog('$emoji $message', 'Error');
+  elog('$emoji $message');
 }
 
 /// Shorthand for warning log with emoji
 void wprint(String message, [String emoji = '⚠️']) {
-  wlog('$emoji $message', 'Warning');
+  wlog('$emoji $message');
 }
 
 /// Shorthand for info log with emoji
 void iprint(String message, [String emoji = 'ℹ️']) {
-  ilog('$emoji $message', 'Info');
+  ilog('$emoji $message');
 } 

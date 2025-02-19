@@ -13,7 +13,7 @@ class ListNotesParams {
 }
 
 /// Use case for listing notes
-class ListNotesUseCase extends BaseUseCase<void> {
+class ListNotesUseCase extends BaseUseCase<ListNotesParams> {
   final NoteRepository _repository;
   final _events = StreamController<DomainEvent>.broadcast();
   bool _isListing = false;
@@ -24,7 +24,7 @@ class ListNotesUseCase extends BaseUseCase<void> {
   Stream<DomainEvent> get events => _events.stream;
 
   @override
-  Future<void> execute([void params]) async {
+  Future<void> execute([ListNotesParams? params]) async {
     if (_isListing) {
       return;
     }
@@ -33,7 +33,7 @@ class ListNotesUseCase extends BaseUseCase<void> {
     _events.add(OperationInProgress('list_notes'));
     
     try {
-      await for (final notes in _repository.list()) {
+      await for (final notes in _repository.list(filters: params?.filters)) {
         _events.add(NotesRetrieved(notes));
       }
       

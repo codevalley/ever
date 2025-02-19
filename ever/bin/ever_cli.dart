@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:ever/core/logging.dart';
 import 'package:ever/domain/core/circuit_breaker.dart';
 import 'package:ever/domain/core/local_cache.dart';
 import 'package:ever/domain/core/retry_config.dart';
@@ -27,6 +28,14 @@ void main(List<String> args) async {
   final logger = Logger();
   
   try {
+    // Set up default logging
+    initLogging(LogConfig(
+      enabled: true,
+      minLevel: LogLevel.info,
+      showTimestamp: true,
+      showLevel: true,
+    ));
+    
     // Set up dependency injection
     await setupDependencies();
     

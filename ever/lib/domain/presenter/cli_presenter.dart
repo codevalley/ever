@@ -69,7 +69,7 @@ class CliPresenter implements EverPresenter {
   }
 
   void _handleUserEvents(DomainEvent event) {
-    eprint('CLI Presenter handling event: ${event.runtimeType}');
+    dprint('CLI Presenter handling event: ${event.runtimeType}');
     
     if (event is CurrentUserRetrieved) {
       _updateState(
