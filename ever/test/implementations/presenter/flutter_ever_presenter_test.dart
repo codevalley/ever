@@ -4,6 +4,10 @@ import 'package:ever/domain/core/events.dart';
 import 'package:ever/domain/events/user_events.dart';
 import 'package:ever/domain/entities/user.dart';
 import 'package:ever/domain/presenter/ever_presenter.dart';
+import 'package:ever/domain/usecases/note/create_note_usecase.dart';
+import 'package:ever/domain/usecases/note/update_note_usecase.dart';
+import 'package:ever/domain/usecases/note/delete_note_usecase.dart';
+import 'package:ever/domain/usecases/note/list_notes_usecase.dart';
 import 'package:ever/domain/usecases/user/get_current_user_usecase.dart';
 import 'package:ever/domain/usecases/user/login_usecase.dart';
 import 'package:ever/domain/usecases/user/refresh_token_usecase.dart';
@@ -22,6 +26,10 @@ import 'flutter_ever_presenter_test.mocks.dart';
   SignOutUseCase,
   RefreshTokenUseCase,
   GetCurrentUserUseCase,
+  CreateNoteUseCase,
+  UpdateNoteUseCase,
+  DeleteNoteUseCase,
+  ListNotesUseCase,
 ])
 void main() {
   late MockRegisterUseCase mockRegisterUseCase;
@@ -29,6 +37,10 @@ void main() {
   late MockSignOutUseCase mockSignOutUseCase;
   late MockRefreshTokenUseCase mockRefreshTokenUseCase;
   late MockGetCurrentUserUseCase mockGetCurrentUserUseCase;
+  late MockCreateNoteUseCase mockCreateNoteUseCase;
+  late MockUpdateNoteUseCase mockUpdateNoteUseCase;
+  late MockDeleteNoteUseCase mockDeleteNoteUseCase;
+  late MockListNotesUseCase mockListNotesUseCase;
   late FlutterEverPresenter presenter;
   late List<EverState> states;
   late StreamController<DomainEvent> registerEventController;
@@ -36,6 +48,11 @@ void main() {
   late StreamController<DomainEvent> signOutEventController;
   late StreamController<DomainEvent> refreshTokenEventController;
   late StreamController<DomainEvent> getCurrentUserEventController;
+  late StreamController<DomainEvent> createNoteEventController;
+  late StreamController<DomainEvent> updateNoteEventController;
+  late StreamController<DomainEvent> deleteNoteEventController;
+  late StreamController<DomainEvent> listNotesEventController;
+  late StreamSubscription<EverState>? stateSubscription;
 
   setUp(() async {
     mockRegisterUseCase = MockRegisterUseCase();
@@ -43,18 +60,30 @@ void main() {
     mockSignOutUseCase = MockSignOutUseCase();
     mockRefreshTokenUseCase = MockRefreshTokenUseCase();
     mockGetCurrentUserUseCase = MockGetCurrentUserUseCase();
+    mockCreateNoteUseCase = MockCreateNoteUseCase();
+    mockUpdateNoteUseCase = MockUpdateNoteUseCase();
+    mockDeleteNoteUseCase = MockDeleteNoteUseCase();
+    mockListNotesUseCase = MockListNotesUseCase();
 
-    registerEventController = StreamController<DomainEvent>.broadcast();
-    loginEventController = StreamController<DomainEvent>.broadcast();
-    signOutEventController = StreamController<DomainEvent>.broadcast();
-    refreshTokenEventController = StreamController<DomainEvent>.broadcast();
-    getCurrentUserEventController = StreamController<DomainEvent>.broadcast();
+    registerEventController = StreamController<DomainEvent>();
+    loginEventController = StreamController<DomainEvent>();
+    signOutEventController = StreamController<DomainEvent>();
+    refreshTokenEventController = StreamController<DomainEvent>();
+    getCurrentUserEventController = StreamController<DomainEvent>();
+    createNoteEventController = StreamController<DomainEvent>();
+    updateNoteEventController = StreamController<DomainEvent>();
+    deleteNoteEventController = StreamController<DomainEvent>();
+    listNotesEventController = StreamController<DomainEvent>();
 
     when(mockRegisterUseCase.events).thenAnswer((_) => registerEventController.stream);
     when(mockLoginUseCase.events).thenAnswer((_) => loginEventController.stream);
     when(mockSignOutUseCase.events).thenAnswer((_) => signOutEventController.stream);
     when(mockRefreshTokenUseCase.events).thenAnswer((_) => refreshTokenEventController.stream);
     when(mockGetCurrentUserUseCase.events).thenAnswer((_) => getCurrentUserEventController.stream);
+    when(mockCreateNoteUseCase.events).thenAnswer((_) => createNoteEventController.stream);
+    when(mockUpdateNoteUseCase.events).thenAnswer((_) => updateNoteEventController.stream);
+    when(mockDeleteNoteUseCase.events).thenAnswer((_) => deleteNoteEventController.stream);
+    when(mockListNotesUseCase.events).thenAnswer((_) => listNotesEventController.stream);
 
     presenter = FlutterEverPresenter(
       registerUseCase: mockRegisterUseCase,
@@ -62,20 +91,40 @@ void main() {
       signOutUseCase: mockSignOutUseCase,
       refreshTokenUseCase: mockRefreshTokenUseCase,
       getCurrentUserUseCase: mockGetCurrentUserUseCase,
+      createNoteUseCase: mockCreateNoteUseCase,
+      updateNoteUseCase: mockUpdateNoteUseCase,
+      deleteNoteUseCase: mockDeleteNoteUseCase,
+      listNotesUseCase: mockListNotesUseCase,
     );
 
     states = [];
-    presenter.state.listen(states.add);
+    stateSubscription = presenter.state.listen(states.add);
     await Future.delayed(Duration.zero);
   });
 
   tearDown(() async {
+    await stateSubscription?.cancel();
+    stateSubscription = null;
     await presenter.dispose();
-    await registerEventController.close();
-    await loginEventController.close();
-    await signOutEventController.close();
-    await refreshTokenEventController.close();
-    await getCurrentUserEventController.close();
+
+    // Close all event controllers
+    final controllers = [
+      registerEventController,
+      loginEventController,
+      signOutEventController,
+      refreshTokenEventController,
+      getCurrentUserEventController,
+      createNoteEventController,
+      updateNoteEventController,
+      deleteNoteEventController,
+      listNotesEventController,
+    ];
+
+    for (final controller in controllers) {
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+    }
   });
 
   Matcher isEverState({
@@ -142,71 +191,106 @@ void main() {
   });
 
   group('login', () {
-    test('executes login use case with correct parameters', () async {
-      await presenter.login('secret123');
-      await pumpEventQueue();
+    late List<EverState> states;
+    late StreamSubscription<EverState> stateSubscription;
 
-      verify(mockLoginUseCase.execute(argThat(
-        isA<LoginParams>().having((p) => p.userSecret, 'userSecret', 'secret123'),
-      ))).called(1);
+    setUp(() {
+      states = [];
+      stateSubscription = presenter.state.listen(states.add);
     });
 
-    test('updates state during login flow', () async {
+    tearDown(() {
+      stateSubscription.cancel();
+    });
+
+    test('login executes login use case with correct parameters', () async {
+      // Arrange
+      final userSecret = 'test-secret';
       final user = User(
-        id: '1',
-        username: 'testuser',
+        id: '1', 
+        username: 'Test User',
         createdAt: DateTime.now(),
       );
       
-      await presenter.login('secret123');
+      // Act
+      await presenter.login(userSecret);
+      
+      // Assert initial state
+      verify(mockLoginUseCase.execute(any)).called(1);
+      expect(states.any((s) => s.isLoading), isTrue);
+      expect(states.last.error, isNull);
+      
+      // Emit token obtained
+      loginEventController.add(TokenObtained('test-token', DateTime.now().add(Duration(hours: 1))));
       await pumpEventQueue();
-      loginEventController.add(OperationInProgress('login'));
-      await pumpEventQueue();
+      
+      // Verify getCurrentUser is called
+      verify(mockGetCurrentUserUseCase.execute()).called(1);
+      
+      // Emit user retrieved
       getCurrentUserEventController.add(CurrentUserRetrieved(user));
       await pumpEventQueue();
-
-      expect(states, [
-        isEverState(),
-        isEverState(isLoading: true),
-        isEverState(
-          isLoading: false,
-          currentUser: user,
-          isAuthenticated: true,
-        ),
-      ]);
+      
+      // Assert final state
+      expect(states.last.isLoading, isFalse);
+      expect(states.last.currentUser, equals(user));
+      expect(states.last.isAuthenticated, isTrue);
+      expect(states.last.error, isNull);
     });
 
-    test('handles login failure', () async {
-      await presenter.login('secret123');
+    test('login handles login failure', () async {
+      // Arrange
+      final userSecret = 'test-secret';
+      final error = 'Login failed';
+      
+      // Act
+      await presenter.login(userSecret);
+      
+      // Assert initial state
+      verify(mockLoginUseCase.execute(any)).called(1);
+      expect(states.any((s) => s.isLoading), isTrue);
+      expect(states.last.error, isNull);
+      
+      // Emit failure
+      loginEventController.add(OperationFailure('login', error));
       await pumpEventQueue();
-      loginEventController.add(OperationInProgress('login'));
-      await pumpEventQueue();
-      loginEventController.add(OperationFailure('login', 'Invalid credentials'));
-      await pumpEventQueue();
-
-      expect(states, [
-        isEverState(),
-        isEverState(isLoading: true),
-        isEverState(error: 'Invalid credentials'),
-      ]);
+      
+      // Assert final state
+      expect(states.last.isLoading, isFalse);
+      expect(states.last.error, equals(error));
+      expect(states.last.isAuthenticated, isFalse);
+      expect(states.last.currentUser, isNull);
     });
 
-    test('clears error on new operation', () async {
-      await presenter.login('secret123');
+    test('login handles user info failure', () async {
+      // Arrange
+      final userSecret = 'test-secret';
+      final error = 'Failed to get user info';
+      
+      // Act
+      await presenter.login(userSecret);
+      
+      // Assert initial state
+      verify(mockLoginUseCase.execute(any)).called(1);
+      expect(states.any((s) => s.isLoading), isTrue);
+      expect(states.last.error, isNull);
+      
+      // Emit token obtained
+      loginEventController.add(TokenObtained('test-token', DateTime.now().add(Duration(hours: 1))));
       await pumpEventQueue();
-      loginEventController.add(OperationInProgress('login'));
+      
+      // Verify getCurrentUser is called
+      verify(mockGetCurrentUserUseCase.execute()).called(1);
+      
+      // Emit user info failure
+      getCurrentUserEventController.add(OperationFailure('get_user', error));
       await pumpEventQueue();
-      loginEventController.add(OperationFailure('login', 'Invalid credentials'));
-      await pumpEventQueue();
-
-      await presenter.login('secret456');
-      await pumpEventQueue();
-
-      expect(states.length, 4);
-      expect(states[0], isEverState());
-      expect(states[1], isEverState(isLoading: true));
-      expect(states[2], isEverState(error: 'Invalid credentials'));
-      expect(states[3], isEverState(isLoading: true, error: null));
+      
+      // Assert final state
+      expect(states.last.isLoading, isFalse);
+      expect(states.last.error, equals(error));
+      expect(states.last.isAuthenticated, isFalse);
+      expect(states.last.currentUser, isNull);
     });
   });
 

@@ -1,10 +1,10 @@
 import '../core/events.dart';
 import '../entities/note.dart';
-import 'base_ds.dart';
+import 'base_repository.dart';
 
-/// Interface for note data source operations
-abstract class NoteDataSource extends BaseDataSource<Note> {
-  /// Stream of domain events emitted by this data source
+/// Repository interface for note operations
+abstract class NoteRepository extends BaseRepository<Note> {
+  /// Stream of domain events emitted by this repository
   @override
   Stream<DomainEvent> get events;
   
@@ -37,11 +37,10 @@ abstract class NoteDataSource extends BaseDataSource<Note> {
   /// Add attachment to note
   Future<Note> addAttachment(String noteId, Attachment attachment);
   
-  /// Initializes the data source
-  @override
+  /// Initializes the repository
   Future<void> initialize();
 
   /// Disposes of any resources
   @override
   void dispose();
-}
+} 

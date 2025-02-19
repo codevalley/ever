@@ -3,8 +3,13 @@ import 'dart:async';
 import 'package:rxdart/rxdart.dart';
 import '../../core/logging.dart';
 import '../../domain/core/events.dart';
+import '../../domain/events/note_events.dart';
 import '../../domain/events/user_events.dart';
 import '../../domain/presenter/ever_presenter.dart';
+import '../../domain/usecases/note/create_note_usecase.dart';
+import '../../domain/usecases/note/update_note_usecase.dart';
+import '../../domain/usecases/note/delete_note_usecase.dart';
+import '../../domain/usecases/note/list_notes_usecase.dart';
 import '../../domain/usecases/user/get_current_user_usecase.dart';
 import '../../domain/usecases/user/login_usecase.dart';
 import '../../domain/usecases/user/refresh_token_usecase.dart';
@@ -19,7 +24,13 @@ class FlutterEverPresenter implements EverPresenter {
   final RefreshTokenUseCase _refreshTokenUseCase;
   final GetCurrentUserUseCase _getCurrentUserUseCase;
 
+  final CreateNoteUseCase _createNoteUseCase;
+  final UpdateNoteUseCase _updateNoteUseCase;
+  final DeleteNoteUseCase _deleteNoteUseCase;
+  final ListNotesUseCase _listNotesUseCase;
+
   final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
+  final _events = BehaviorSubject<DomainEvent>();
   final List<StreamSubscription> _subscriptions = [];
 
   FlutterEverPresenter({
@@ -28,19 +39,77 @@ class FlutterEverPresenter implements EverPresenter {
     required SignOutUseCase signOutUseCase,
     required RefreshTokenUseCase refreshTokenUseCase,
     required GetCurrentUserUseCase getCurrentUserUseCase,
+    required CreateNoteUseCase createNoteUseCase,
+    required UpdateNoteUseCase updateNoteUseCase,
+    required DeleteNoteUseCase deleteNoteUseCase,
+    required ListNotesUseCase listNotesUseCase,
   })  : _registerUseCase = registerUseCase,
         _loginUseCase = loginUseCase,
         _signOutUseCase = signOutUseCase,
         _refreshTokenUseCase = refreshTokenUseCase,
-        _getCurrentUserUseCase = getCurrentUserUseCase {
-    // Subscribe to all use case events
+        _getCurrentUserUseCase = getCurrentUserUseCase,
+        _createNoteUseCase = createNoteUseCase,
+        _updateNoteUseCase = updateNoteUseCase,
+        _deleteNoteUseCase = deleteNoteUseCase,
+        _listNotesUseCase = listNotesUseCase {
+    
+    // Subscribe to all use case events and merge them into a single stream
     _subscriptions.addAll([
-      _registerUseCase.events.listen(_handleUserEvents),
-      _loginUseCase.events.listen(_handleUserEvents),
-      _signOutUseCase.events.listen(_handleUserEvents),
-      _refreshTokenUseCase.events.listen(_handleTokenEvents),
-      _getCurrentUserUseCase.events.listen(_handleUserEvents),
+      _registerUseCase.events.listen(_events.add),
+      _loginUseCase.events.listen(_events.add),
+      _signOutUseCase.events.listen(_events.add),
+      _refreshTokenUseCase.events.listen(_events.add),
+      _getCurrentUserUseCase.events.listen(_events.add),
+      _createNoteUseCase.events.listen(_events.add),
+      _updateNoteUseCase.events.listen(_events.add),
+      _deleteNoteUseCase.events.listen(_events.add),
+      _listNotesUseCase.events.listen(_events.add),
     ]);
+
+    // Subscribe to the merged events stream to update state
+    _subscriptions.add(_events.stream.listen((event) {
+      if (event is CurrentUserRetrieved ||
+          event is UserRegistered ||
+          event is UserLoggedOut) {
+        _handleUserEvents(event);
+      } else if (event is TokenObtained ||
+                 event is TokenRefreshed ||
+                 event is TokenExpired) {
+        _handleTokenEvents(event);
+      } else if (event is NoteCreated ||
+                 event is NoteUpdated ||
+                 event is NoteDeleted ||
+                 event is NotesRetrieved) {
+        _handleNoteEvents(event);
+      } else if (event is OperationInProgress ||
+                 event is OperationSuccess ||
+                 event is OperationFailure) {
+        // Handle generic operation events
+        if (event is OperationInProgress) {
+          // Always clear error when starting a new operation
+          _updateState(
+            _stateController.value.copyWith(
+              isLoading: true,
+              error: null,
+            ),
+          );
+        } else if (event is OperationSuccess) {
+          _updateState(
+            _stateController.value.copyWith(
+              isLoading: false,
+              error: null,
+            ),
+          );
+        } else if (event is OperationFailure) {
+          _updateState(
+            _stateController.value.copyWith(
+              isLoading: false,
+              error: event.error,
+            ),
+          );
+        }
+      }
+    }));
   }
 
   @override
@@ -49,6 +118,7 @@ class FlutterEverPresenter implements EverPresenter {
   void _updateState(EverState newState) {
     // Only emit state if it's different from the current state
     if (_stateController.value != newState) {
+      dprint('Updating state: isLoading=${newState.isLoading}, error=${newState.error}, isAuthenticated=${newState.isAuthenticated}');
       _stateController.add(newState);
     }
   }
@@ -93,20 +163,6 @@ class FlutterEverPresenter implements EverPresenter {
       );
       // After registration, try to obtain token and get user info
       login(event.userSecret);
-    } else if (event is OperationFailure) {
-      _updateState(
-        _stateController.value.copyWith(
-          isLoading: false,
-          error: event.error,
-        ),
-      );
-    } else if (event is OperationInProgress) {
-      _updateState(
-        _stateController.value.copyWith(
-          isLoading: true,
-          error: null,
-        ),
-      );
     } else if (event is UserLoggedOut) {
       _clearCachedUserSecret();
       _updateState(
@@ -135,6 +191,48 @@ class FlutterEverPresenter implements EverPresenter {
     }
   }
 
+  void _handleNoteEvents(DomainEvent event) {
+    dprint('Flutter Presenter handling note event: ${event.runtimeType}');
+    
+    if (event is NoteCreated) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: [..._stateController.value.notes, event.note],
+          error: null,
+        ),
+      );
+    } else if (event is NoteUpdated) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: _stateController.value.notes.map(
+            (note) => note.id == event.note.id ? event.note : note
+          ).toList(),
+          error: null,
+        ),
+      );
+    } else if (event is NoteDeleted) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: _stateController.value.notes.where(
+            (note) => note.id != event.noteId
+          ).toList(),
+          error: null,
+        ),
+      );
+    } else if (event is NotesRetrieved) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: event.notes,
+          error: null,
+        ),
+      );
+    }
+  }
+
   @override
   Future<void> register(String username) async {
     _updateState(EverState.initial().copyWith(isLoading: true));
@@ -143,84 +241,15 @@ class FlutterEverPresenter implements EverPresenter {
 
   @override
   Future<void> login(String userSecret) async {
-    dprint('Starting login process');
-    _updateState(EverState.initial().copyWith(isLoading: true));
-    
     try {
-      // First obtain token
-      dprint('Obtaining token');
+      dprint('Starting login attempt with userSecret: $userSecret');
+      // Reset state completely and set loading
+      _updateState(EverState.initial().copyWith(
+        isLoading: true,
+      ));
+
+      // Execute login
       _loginUseCase.execute(LoginParams(userSecret: userSecret));
-      
-      // Wait for token events to be processed
-      var tokenObtained = false;
-      var attempts = 0;
-      while (!tokenObtained && attempts < 3) {
-        attempts++;
-        try {
-          await for (final event in _loginUseCase.events.timeout(Duration(seconds: 10))) {
-            dprint('Token event: ${event.runtimeType}');
-            if (event is TokenObtained) {
-              dprint('Token obtained in login flow');
-              tokenObtained = true;
-              break;
-            } else if (event is OperationFailure) {
-              throw Exception(event.error);
-            }
-          }
-        } catch (e) {
-          wprint('Token attempt $attempts failed: ${e.toString()}');
-          if (attempts >= 3) {
-            throw Exception('Failed to obtain token after multiple attempts');
-          }
-          await Future.delayed(Duration(milliseconds: 100));
-        }
-      }
-      
-      if (!tokenObtained) {
-        throw Exception('Failed to obtain token');
-      }
-
-      // Now get current user
-      dprint('Getting current user info');
-      dprint('Executing getCurrentUserUseCase');
-      _getCurrentUserUseCase.execute();
-      
-      // Create a completer to handle the user info retrieval
-      final completer = Completer<void>();
-      StreamSubscription? subscription;
-      
-      subscription = _getCurrentUserUseCase.events.listen(
-        (event) {
-          dprint('User info event: ${event.runtimeType}');
-          if (event is CurrentUserRetrieved) {
-            dprint('User info retrieved successfully');
-            completer.complete();
-          } else if (event is OperationFailure) {
-            eprint('Failed to get user info: ${event.error}');
-            completer.completeError(Exception(event.error));
-          }
-        },
-        onError: (error) {
-          eprint('User info stream error: $error');
-          completer.completeError(error);
-        },
-        onDone: () {
-          dprint('User info stream completed');
-          if (!completer.isCompleted) {
-            completer.completeError(Exception('User info stream completed without result'));
-          }
-        },
-      );
-
-      // Wait for completion with timeout
-      try {
-        await completer.future.timeout(Duration(seconds: 10));
-      } catch (e) {
-        eprint('User info timeout: $e');
-        throw Exception('Failed to get user info: $e');
-      } finally {
-        await subscription.cancel();
-      }
     } catch (e) {
       eprint('Login failed: ${e.toString()}');
       _updateState(
@@ -229,6 +258,7 @@ class FlutterEverPresenter implements EverPresenter {
           error: e.toString(),
         ),
       );
+      rethrow;
     }
   }
 
@@ -252,26 +282,92 @@ class FlutterEverPresenter implements EverPresenter {
 
   @override
   Future<void> createNote(String title, String content) async {
-    // TODO: Implement when note usecases are ready
-    throw UnimplementedError();
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to create notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      await _createNoteUseCase.execute(CreateNoteParams(
+        title: title,
+        content: content,
+        userId: _stateController.value.currentUser!.id,
+      ));
+    } catch (e) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+    }
   }
 
   @override
   Future<void> updateNote(String noteId, {String? title, String? content}) async {
-    // TODO: Implement when note usecases are ready
-    throw UnimplementedError();
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to update notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      await _updateNoteUseCase.execute(UpdateNoteParams(
+        noteId: noteId,
+        title: title,
+        content: content,
+      ));
+    } catch (e) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+    }
   }
 
   @override
   Future<void> deleteNote(String noteId) async {
-    // TODO: Implement when note usecases are ready
-    throw UnimplementedError();
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to delete notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      await _deleteNoteUseCase.execute(DeleteNoteParams(noteId: noteId));
+    } catch (e) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+    }
   }
 
   @override
   Future<void> getNotes() async {
-    // TODO: Implement when note usecases are ready
-    throw UnimplementedError();
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to get notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      await _listNotesUseCase.execute(ListNotesParams(
+        filters: {'user_id': _stateController.value.currentUser!.id},
+      ));
+    } catch (e) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+    }
   }
 
   @override

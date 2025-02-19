@@ -36,6 +36,9 @@ class _Endpoints {
 
   /// Authentication endpoints
   final auth = const _AuthEndpoints();
+
+  /// Note endpoints
+  final note = const _NoteEndpoints();
 }
 
 /// Authentication related endpoints
@@ -50,6 +53,29 @@ class _AuthEndpoints {
 
   /// Get current user info endpoint
   String get me => '/auth/me';
+}
+
+/// Note related endpoints
+class _NoteEndpoints {
+  const _NoteEndpoints();
+
+  /// Create note endpoint
+  String get create => '/notes';
+
+  /// Update note endpoint
+  String note(String id) => '/notes/$id';
+
+  /// Delete note endpoint
+  String delete(String id) => '/notes/$id';
+
+  /// List notes endpoint
+  String get list => '/notes';
+
+  /// Process note endpoint
+  String process(String id) => '/notes/$id/process';
+
+  /// Add attachment endpoint
+  String attachment(String id) => '/notes/$id/attachments';
 }
 
 /// Token related configuration
@@ -91,6 +117,9 @@ class _ApiKeys {
 
   /// User related keys
   final user = const _UserKeys();
+
+  /// Note related keys
+  final note = const _NoteKeys();
 }
 
 /// Common response keys
@@ -132,12 +161,53 @@ class _UserKeys {
   String get updatedAt => 'updated_at';
 }
 
+/// Note related keys
+class _NoteKeys {
+  const _NoteKeys();
+
+  /// Note ID key
+  String get id => 'id';
+
+  /// Note title key
+  String get title => 'title';
+
+  /// Note content key
+  String get content => 'content';
+
+  /// Note user ID key
+  String get userId => 'user_id';
+
+  /// Note creation timestamp key
+  String get createdAt => 'created_at';
+
+  /// Note last modified timestamp key
+  String get updatedAt => 'updated_at';
+
+  /// Note attachments key
+  String get attachments => 'attachments';
+
+  /// Note processing status key
+  String get processingStatus => 'processing_status';
+
+  /// Note enrichment data key
+  String get enrichmentData => 'enrichment_data';
+
+  /// Note attachment type key
+  String get attachmentType => 'type';
+
+  /// Note attachment URL key
+  String get attachmentUrl => 'url';
+}
+
 /// Operation names for events and logging
 class _Operations {
   const _Operations();
 
   /// Authentication related operations
   final auth = const _AuthOperations();
+
+  /// Note related operations
+  final note = const _NoteOperations();
 }
 
 /// Authentication related operation names
@@ -161,4 +231,36 @@ class _AuthOperations {
 
   /// Generic auth operation name
   String get generic => 'auth_operation';
+}
+
+/// Note related operation names
+class _NoteOperations {
+  const _NoteOperations();
+
+  /// Create note operation name
+  String get create => 'note_create';
+
+  /// Update note operation name
+  String get update => 'note_update';
+
+  /// Delete note operation name
+  String get delete => 'note_delete';
+
+  /// List notes operation name
+  String get list => 'note_list';
+
+  /// Read note operation name
+  String get read => 'note_read';
+
+  /// Search notes operation name
+  String get search => 'note_search';
+
+  /// Process note operation name
+  String get process => 'note_process';
+
+  /// Add attachment operation name
+  String get addAttachment => 'note_add_attachment';
+
+  /// Generic note operation name
+  String get generic => 'note_operation';
 }
