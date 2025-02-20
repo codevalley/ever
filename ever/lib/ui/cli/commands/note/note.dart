@@ -3,6 +3,7 @@ import 'create.dart';
 import 'delete.dart';
 import 'list.dart';
 import 'update.dart';
+import 'view.dart';
 
 /// Group command for note-related operations
 class NoteCommand extends EverCommand {
@@ -20,6 +21,7 @@ class NoteCommand extends EverCommand {
     addSubcommand(UpdateNoteCommand(presenter: presenter));
     addSubcommand(DeleteNoteCommand(presenter: presenter));
     addSubcommand(ListNotesCommand(presenter: presenter));
+    addSubcommand(ViewNoteCommand(presenter: presenter));
   }
 
   @override

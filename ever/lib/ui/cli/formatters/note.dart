@@ -3,18 +3,26 @@ import 'base.dart';
 
 /// Formatter for note-related CLI output
 class NoteFormatter extends BaseFormatter {
+  String _formatShortDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
   /// Format a single note for display
   String formatNote(Note note) {
-    final enrichmentInfo = note.enrichmentData?.isNotEmpty == true
-        ? '\nEnrichment Data:\n${note.enrichmentData!.entries.map((e) => '  ${e.key}: ${e.value}').join('\n')}'
+    final processingInfo = 'Processing Status: ${note.processingStatus.name}';
+    
+    // Build enrichment info if note is processed
+    final enrichmentInfo = note.isProcessed && note.enrichmentData != null
+        ? '''
+Title: ${note.enrichmentData!['title'] ?? ''}
+Formatted: ${note.enrichmentData!['formatted'] ?? ''}
+Engine: ${note.enrichmentData!['model_name'] ?? 'unknown'} (${note.enrichmentData!['tokens_used'] ?? 0} tokens)'''
         : '';
 
-    final processingInfo = '\nProcessing Status: ${note.processingStatus.name}${note.processedAt != null ? ' (${formatDateTime(note.processedAt!)})' : ''}';
-
     return '''
-Content: ${note.content}
-Created: ${formatDateTime(note.createdAt)}${note.updatedAt != null ? '\nUpdated: ${formatDateTime(note.updatedAt!)}' : ''}$processingInfo$enrichmentInfo
-''';
+Created: ${_formatShortDate(note.createdAt)}${note.updatedAt != null ? '\nUpdated: ${_formatShortDate(note.updatedAt!)}' : ''}
+Raw Text: ${note.content}
+$processingInfo\n$enrichmentInfo''';
   }
 
   /// Format a list of notes for display
@@ -25,4 +33,4 @@ Created: ${formatDateTime(note.createdAt)}${note.updatedAt != null ? '\nUpdated:
 
     return notes.map((note) => formatNote(note)).join('\n---\n');
   }
-} 
+}

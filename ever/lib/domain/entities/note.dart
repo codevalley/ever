@@ -1,13 +1,40 @@
 /// Represents a note in the system
 class Note {
-  final String id;
+  /// Raw content of the note
   final String content;
+  
+  /// Display content of the note
+  /// Returns formatted content if processing is complete, otherwise raw content
+  String get displayContent =>
+      processingStatus == ProcessingStatus.completed &&
+              enrichmentData?['formatted'] != null
+          ? enrichmentData!['formatted']
+          : content;
+
+  /// Display title of the note
+  /// Returns enriched title if processing is complete, otherwise empty string
+  String get displayTitle =>
+      processingStatus == ProcessingStatus.completed &&
+              enrichmentData?['title'] != null
+          ? enrichmentData!['title']
+          : '';
+
+  /// Whether the note has been fully processed
+  bool get isProcessed => processingStatus == ProcessingStatus.completed;
+
+  /// Whether the note has any attachments
+  bool get hasAttachments => attachments.isNotEmpty;
+
+
+  final String id;
+
   final DateTime createdAt;
   final DateTime? updatedAt;
   final String userId;
   final Map<String, dynamic>? enrichmentData;
   final ProcessingStatus processingStatus;
   final DateTime? processedAt;
+  final List<Attachment> attachments;
 
   const Note({
     required this.id,
@@ -18,6 +45,7 @@ class Note {
     this.enrichmentData,
     required this.processingStatus,
     this.processedAt,
+    this.attachments = const [],
   });
 
   @override
@@ -30,7 +58,8 @@ class Note {
           updatedAt == other.updatedAt &&
           userId == other.userId &&
           processingStatus == other.processingStatus &&
-          processedAt == other.processedAt;
+          processedAt == other.processedAt &&
+          attachments == other.attachments;
 
   @override
   int get hashCode =>
@@ -40,7 +69,8 @@ class Note {
       updatedAt.hashCode ^
       userId.hashCode ^
       processingStatus.hashCode ^
-      processedAt.hashCode;
+      processedAt.hashCode ^
+      attachments.hashCode;
 }
 
 /// Represents an attachment to a note

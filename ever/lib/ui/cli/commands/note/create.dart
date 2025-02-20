@@ -52,7 +52,7 @@ class CreateNoteCommand extends EverCommand {
       }
     }
 
-    await presenter.createNote(content!);
+    await presenter.createNote(content);
     return ExitCode.success.code;
   }
 
