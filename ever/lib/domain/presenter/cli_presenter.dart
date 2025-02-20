@@ -14,6 +14,7 @@ import '../usecases/note/create_note_usecase.dart';
 import '../usecases/note/update_note_usecase.dart';
 import '../usecases/note/delete_note_usecase.dart';
 import '../usecases/note/list_notes_usecase.dart';
+import '../usecases/note/get_note_usecase.dart';
 import '../entities/note.dart';
 import 'ever_presenter.dart';
 
@@ -30,6 +31,7 @@ class CliPresenter implements EverPresenter {
   final UpdateNoteUseCase _updateNoteUseCase;
   final DeleteNoteUseCase _deleteNoteUseCase;
   final ListNotesUseCase _listNotesUseCase;
+  final GetNoteUseCase _getNoteUseCase;
 
   final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
   final List<StreamSubscription> _subscriptions = [];
@@ -44,6 +46,7 @@ class CliPresenter implements EverPresenter {
     required UpdateNoteUseCase updateNoteUseCase,
     required DeleteNoteUseCase deleteNoteUseCase,
     required ListNotesUseCase listNotesUseCase,
+    required GetNoteUseCase getNoteUseCase,
   })  : _registerUseCase = registerUseCase,
         _loginUseCase = loginUseCase,
         _signOutUseCase = signOutUseCase,
@@ -52,7 +55,8 @@ class CliPresenter implements EverPresenter {
         _createNoteUseCase = createNoteUseCase,
         _updateNoteUseCase = updateNoteUseCase,
         _deleteNoteUseCase = deleteNoteUseCase,
-        _listNotesUseCase = listNotesUseCase {
+        _listNotesUseCase = listNotesUseCase,
+        _getNoteUseCase = getNoteUseCase {
     // Subscribe to all use case events
     _subscriptions.addAll([
       _registerUseCase.events.listen(_handleUserEvents),
@@ -64,6 +68,7 @@ class CliPresenter implements EverPresenter {
       _updateNoteUseCase.events.listen(_handleNoteEvents),
       _deleteNoteUseCase.events.listen(_handleNoteEvents),
       _listNotesUseCase.events.listen(_handleNoteEvents),
+      _getNoteUseCase.events.listen(_handleNoteEvents),
     ]);
   }
 
@@ -201,6 +206,18 @@ class CliPresenter implements EverPresenter {
         _stateController.value.copyWith(
           isLoading: false,
           notes: event.notes,
+          error: null,
+        ),
+      );
+    } else if (event is NoteRetrieved) {
+      dprint('Note retrieved: ${event.note.id}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: [
+            ..._stateController.value.notes.where((n) => n.id != event.note.id),
+            event.note
+          ],
           error: null,
         ),
       );
@@ -456,42 +473,64 @@ class CliPresenter implements EverPresenter {
       throw Exception('Must be authenticated to get notes');
     }
     
-    final note = _stateController.value.notes.firstWhere(
-      (note) => note.id == noteId,
-      orElse: () => throw Exception('Note not found'),
-    );
+    _updateState(_stateController.value.copyWith(isLoading: true));
     
-    return note;
+    try {
+      // Execute the use case
+      await _getNoteUseCase.execute(GetNoteParams(id: noteId));
+
+      // Wait for the first emission from the note stream
+      final note = await _getNoteUseCase.note.first;
+      
+      _updateState(_stateController.value.copyWith(
+        isLoading: false,
+        notes: [
+          ..._stateController.value.notes.where((n) => n.id != noteId),
+          note
+        ],
+      ));
+
+      return note;
+    } catch (e) {
+      _updateState(_stateController.value.copyWith(
+        isLoading: false,
+        error: e.toString(),
+      ));
+      rethrow;
+    }
   }
 
   @override
   Future<List<Note>> listNotes({bool includeArchived = false}) async {
-    dprint('Listing notes (includeArchived: $includeArchived)');
     if (!_stateController.value.isAuthenticated) {
-      eprint('Cannot list notes: not authenticated');
       throw Exception('Must be authenticated to list notes');
     }
     
     _updateState(_stateController.value.copyWith(isLoading: true));
     
     try {
-      dprint('Executing list notes use case');
+      // Execute the use case
       await _listNotesUseCase.execute(ListNotesParams(
         filters: {
           'user_id': _stateController.value.currentUser!.id,
           if (!includeArchived) 'archived': false,
         },
       ));
-      dprint('List notes use case completed, returning ${_stateController.value.notes.length} notes');
-      return _stateController.value.notes;
+
+      // Wait for the first emission from the notes stream
+      final notes = await _listNotesUseCase.notes.first;
+      
+      _updateState(_stateController.value.copyWith(
+        isLoading: false,
+        notes: notes,
+      ));
+
+      return notes;
     } catch (e) {
-      eprint('Failed to list notes: $e');
-      _updateState(
-        _stateController.value.copyWith(
-          isLoading: false,
-          error: e.toString(),
-        ),
-      );
+      _updateState(_stateController.value.copyWith(
+        isLoading: false,
+        error: e.toString(),
+      ));
       rethrow;
     }
   }

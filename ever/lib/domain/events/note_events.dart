@@ -25,6 +25,12 @@ class NotesRetrieved extends DomainEvent {
   const NotesRetrieved(this.notes);
 }
 
+/// Event emitted when a single note is retrieved
+class NoteRetrieved extends DomainEvent {
+  final Note note;
+  const NoteRetrieved(this.note);
+}
+
 /// Event emitted when note processing starts
 class NoteProcessingStarted extends DomainEvent {
   final String noteId;

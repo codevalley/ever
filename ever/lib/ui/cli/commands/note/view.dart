@@ -34,10 +34,6 @@ class ViewNoteCommand extends EverCommand {
 
     try {
       final note = await presenter.getNote(id);
-      if (note == null) {
-        logger.err('Note not found');
-        return ExitCode.unavailable.code;
-      }
 
       final formatter = NoteFormatter();
       logger.info(formatter.formatNote(note));

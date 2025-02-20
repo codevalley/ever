@@ -18,6 +18,7 @@ import 'package:ever/domain/usecases/note/create_note_usecase.dart';
 import 'package:ever/domain/usecases/note/update_note_usecase.dart';
 import 'package:ever/domain/usecases/note/delete_note_usecase.dart';
 import 'package:ever/domain/usecases/note/list_notes_usecase.dart';
+import 'package:ever/domain/usecases/note/get_note_usecase.dart';
 import 'package:ever/implementations/cache/file_cache.dart';
 import 'package:ever/implementations/datasources/user_ds_impl.dart';
 import 'package:ever/implementations/datasources/note_ds_impl.dart';
@@ -187,6 +188,10 @@ Future<void> setupDependencies() async {
     () => ListNotesUseCase(getIt<NoteRepository>()),
   );
 
+  getIt.registerFactory<GetNoteUseCase>(
+    () => GetNoteUseCase(getIt<NoteRepository>()),
+  );
+
   // Presenter
   getIt.registerSingleton<CliPresenter>(
     CliPresenter(
@@ -199,6 +204,7 @@ Future<void> setupDependencies() async {
       updateNoteUseCase: getIt<UpdateNoteUseCase>(),
       deleteNoteUseCase: getIt<DeleteNoteUseCase>(),
       listNotesUseCase: getIt<ListNotesUseCase>(),
+      getNoteUseCase: getIt<GetNoteUseCase>(),
     ),
   );
 
