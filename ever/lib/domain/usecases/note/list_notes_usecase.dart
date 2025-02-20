@@ -30,15 +30,14 @@ class ListNotesParams {
 /// 1. Validates the filters if any
 /// 2. Calls repository to list notes with retries
 /// 3. Emits appropriate events:
-///    - [OperationInProgress]: When listing starts
+///    - [OperationInProgress]: When listing starts and on each retry
 ///    - [NotesRetrieved]: When notes are retrieved successfully
 ///    - [OperationSuccess]: When listing completes successfully
-///    - [OperationFailure]: When listing fails
+///    - [OperationFailure]: When listing fails after all retries
 class ListNotesUseCase extends BaseUseCase<ListNotesParams> {
   final NoteRepository _repository;
   final _events = BehaviorSubject<DomainEvent>();
   final _notesSubject = BehaviorSubject<List<Note>>();
-  StreamSubscription<List<Note>>? _listSubscription;
   bool _isExecuting = false;
   int _retryCount = 0;
   static const _maxRetries = 3;
@@ -55,45 +54,34 @@ class ListNotesUseCase extends BaseUseCase<ListNotesParams> {
   Future<void> execute([ListNotesParams? params]) async {
     if (_isExecuting) return;
     _isExecuting = true;
+    _retryCount = 0;
 
+    // Initial attempt
     _events.add(OperationInProgress('list_notes'));
 
-    final validationError = params?.validateWithMessage();
-    if (validationError != null) {
-      _events.add(OperationFailure('list_notes', validationError));
-      _isExecuting = false;
-      return;
+    while (true) {
+      try {
+        final notes = await _repository.list(filters: params?.filters).first;
+        _notesSubject.add(notes);
+        _events.add(NotesRetrieved(notes));
+        _events.add(const OperationSuccess('list_notes'));
+        break;
+      } catch (e) {
+        if (_retryCount < _maxRetries && _shouldRetry(e)) {
+          _retryCount++;
+          // Emit progress event for retry
+          _events.add(OperationInProgress('list_notes'));
+          await Future.delayed(Duration(milliseconds: 100 * _retryCount));
+          continue;
+        } else {
+          _events.add(OperationFailure('list_notes', e.toString()));
+          break;
+        }
+      }
     }
 
-    try {
-      await _listSubscription?.cancel();
-      _listSubscription = _repository.list(filters: params?.filters)
-        .listen(
-          (notes) {
-            _notesSubject.add(notes);
-            _events.add(NotesRetrieved(notes));
-            _events.add(const OperationSuccess('list_notes'));
-            _isExecuting = false;
-            _retryCount = 0;
-          },
-          onError: (error) async {
-            if (_retryCount < _maxRetries && _shouldRetry(error)) {
-              _retryCount++;
-              await execute(params);
-            } else {
-              _events.add(OperationFailure('list_notes', error.toString()));
-              _isExecuting = false;
-              _retryCount = 0;
-            }
-          },
-          onDone: () {
-            _isExecuting = false;
-          },
-        );
-    } catch (e) {
-      _events.add(OperationFailure('list_notes', e.toString()));
-      _isExecuting = false;
-    }
+    _isExecuting = false;
+    _retryCount = 0;
   }
 
   bool _shouldRetry(dynamic error) {
@@ -105,7 +93,6 @@ class ListNotesUseCase extends BaseUseCase<ListNotesParams> {
 
   @override
   Future<void> dispose() async {
-    await _listSubscription?.cancel();
     await _events.close();
     await _notesSubject.close();
   }

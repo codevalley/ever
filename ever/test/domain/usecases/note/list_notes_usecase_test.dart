@@ -88,20 +88,45 @@ void main() {
     expect((events[2] as OperationSuccess).operation, equals('list_notes'));
   });
 
-  test('handles network error', () async {
+  test('handles network error with retries', () async {
     final params = ListNotesParams();
 
+    // Mock repository to always return error
     when(mockRepository.list(filters: anyNamed('filters')))
         .thenAnswer((_) => Stream.error('Network error'));
 
+    // Execute and wait for completion
     await useCase.execute(params);
-    await Future.delayed(Duration.zero);
 
-    expect(events, hasLength(2));
-    expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('list_notes'));
-    expect(events[1], isA<OperationFailure>());
-    expect((events[1] as OperationFailure).error, equals('Network error'));
+    // Wait for all retries to complete (100ms + 200ms + 300ms)
+    await Future.delayed(Duration(milliseconds: 700));
+
+    // Print events for debugging
+    print('Events received: ${events.map((e) => e.runtimeType).toList()}');
+
+    // Verify the sequence of events
+    expect(events.length, equals(5), reason: 'Expected: Initial + 3 retries + Final failure');
+
+    // Verify the sequence
+    var eventTypes = events.map((e) => e.runtimeType).toList();
+    expect(eventTypes, equals([
+      OperationInProgress, // Initial attempt
+      OperationInProgress, // First retry
+      OperationInProgress, // Second retry
+      OperationInProgress, // Third retry
+      OperationFailure,    // Final failure
+    ]));
+
+    // Verify operation names and error
+    for (var i = 0; i < 4; i++) {
+      expect((events[i] as OperationInProgress).operation, equals('list_notes'),
+          reason: 'Event $i should be for list_notes operation');
+    }
+    expect((events.last as OperationFailure).operation, equals('list_notes'));
+    expect((events.last as OperationFailure).error, equals('Network error'));
+
+    // Verify repository was called 4 times (initial + 3 retries)
+    verify(mockRepository.list(filters: anyNamed('filters'))).called(4);
   });
 
   test('prevents concurrent listings', () async {
