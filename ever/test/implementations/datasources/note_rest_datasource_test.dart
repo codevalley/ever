@@ -28,20 +28,19 @@ void main() {
     group('createNote', () {
       test('returns NoteModel on successful creation', () async {
         final note = NoteModel.forCreation(
-          title: 'Test Note',
           content: 'Test Content',
           userId: 'user123',
         );
 
         final responseJson = {
-          'id': 'note123',
-          'title': 'Test Note',
+          'id': 123,
+
           'content': 'Test Content',
           'user_id': 'user123',
           'created_at': '2024-01-01T00:00:00.000Z',
           'updated_at': '2024-01-01T00:00:00.000Z',
           'attachments': [],
-          'processing_status': 'notProcessed',
+          'processing_status': 'pending',
           'enrichment_data': {},
         };
 
@@ -56,15 +55,14 @@ void main() {
 
         final result = await dataSource.createNote(note);
 
-        expect(result.id, equals('note123'));
-        expect(result.title, equals('Test Note'));
+        expect(result.id, equals(123));
+
         expect(result.content, equals('Test Content'));
         expect(result.userId, equals('user123'));
       });
 
       test('throws exception on non-201 response', () async {
         final note = NoteModel.forCreation(
-          title: 'Test Note',
           content: 'Test Content',
           userId: 'user123',
         );
@@ -88,26 +86,25 @@ void main() {
     group('updateNote', () {
       test('returns NoteModel on successful update', () async {
         final note = NoteModel(
-          id: 'note123',
-          title: 'Updated Note',
+          id: 123,
           content: 'Updated Content',
           userId: 'user123',
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
           attachments: [],
-          processingStatus: ProcessingStatus.notProcessed,
+          processingStatus: ProcessingStatus.pending,
           enrichmentData: {},
         );
 
         final responseJson = {
           'id': note.id,
-          'title': note.title,
+
           'content': note.content,
           'user_id': note.userId,
           'created_at': note.createdAt.toIso8601String(),
-          'updated_at': note.updatedAt.toIso8601String(),
+          'updated_at': note.updatedAt?.toIso8601String(),
           'attachments': [],
-          'processing_status': 'notProcessed',
+          'processing_status': 'pending',
           'enrichment_data': {},
         };
 
@@ -123,20 +120,19 @@ void main() {
         final result = await dataSource.updateNote(note);
 
         expect(result.id, equals(note.id));
-        expect(result.title, equals(note.title));
+
         expect(result.content, equals(note.content));
       });
 
       test('throws exception on non-200 response', () async {
         final note = NoteModel(
-          id: 'note123',
-          title: 'Updated Note',
+          id: 123,
           content: 'Updated Content',
           userId: 'user123',
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
           attachments: [],
-          processingStatus: ProcessingStatus.notProcessed,
+          processingStatus: ProcessingStatus.pending,
           enrichmentData: {},
         );
 
@@ -194,25 +190,25 @@ void main() {
         final responseJson = {
           'items': [
             {
-              'id': 'note123',
-              'title': 'Test Note 1',
+              'id': 123,
+
               'content': 'Test Content 1',
               'user_id': 'user123',
               'created_at': '2024-01-01T00:00:00.000Z',
               'updated_at': '2024-01-01T00:00:00.000Z',
               'attachments': [],
-              'processing_status': 'notProcessed',
+              'processing_status': 'pending',
               'enrichment_data': {},
             },
             {
-              'id': 'note456',
-              'title': 'Test Note 2',
+              'id': 456,
+
               'content': 'Test Content 2',
               'user_id': 'user123',
               'created_at': '2024-01-01T00:00:00.000Z',
               'updated_at': '2024-01-01T00:00:00.000Z',
               'attachments': [],
-              'processing_status': 'notProcessed',
+              'processing_status': 'pending',
               'enrichment_data': {},
             },
           ],
@@ -229,8 +225,8 @@ void main() {
         final result = await dataSource.listNotes();
 
         expect(result, hasLength(2));
-        expect(result[0].id, equals('note123'));
-        expect(result[1].id, equals('note456'));
+        expect(result[0].id, equals(123));
+        expect(result[1].id, equals(456));
       });
 
       test('returns empty list on successful fetch with no items', () async {

@@ -3,6 +3,7 @@ import 'package:mason_logger/mason_logger.dart' hide ExitCode;
 import '../../domain/presenter/ever_presenter.dart';
 import 'commands/base.dart';
 import 'commands/shell.dart';
+import 'commands/note/note.dart';
 import 'commands/user/login.dart';
 import 'commands/user/logout.dart';
 import 'commands/user/profile.dart';
@@ -29,6 +30,7 @@ class CliApp {
       ..addCommand(LoginCommand(presenter: presenter, logger: this.logger))
       ..addCommand(LogoutCommand(presenter: presenter, logger: this.logger))
       ..addCommand(ProfileCommand(presenter: presenter, logger: this.logger))
+      ..addCommand(NoteCommand(presenter: presenter, logger: this.logger))
       ..addCommand(ShellCommand(
         presenter: presenter,
         runner: _registry.runner,

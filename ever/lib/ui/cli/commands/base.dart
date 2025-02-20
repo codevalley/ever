@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart';
 
-import '../../../core/logging.dart';
 import '../../../domain/presenter/ever_presenter.dart';
 import '../../../implementations/config/api_config.dart';
 import '../formatters/error.dart';
@@ -133,11 +132,8 @@ class CommandRegistry {
   /// Run a command with arguments
   Future<int> run(List<String> args) async {
     try {
-      logger.info('Processing args: $args');
-      
       // Parse global options first
       final results = _runner.argParser.parse(args);
-      logger.info('Parsed options: ${results.options}');
       
       // Update API URL if provided
       final apiUrl = results['api-url'] as String?;
@@ -146,38 +142,13 @@ class CommandRegistry {
         logger.info('Using API URL: ${ApiConfig.apiBaseUrl}');
       }
 
-      // Handle verbose flag
-      final verbose = results['verbose'] as bool;
-      logger.info('Verbose flag: $verbose');
-      
-      if (verbose) {
-        logger.info('Enabling verbose logging...');
-        initLogging(LogConfig(
-          enabled: true,
-          minLevel: LogLevel.debug,
-          showTimestamp: true,
-          showLevel: true,
-        ));
-        logger.detail('Verbose logging enabled');
+      // If no command provided, default to shell
+      final hasOnlyApiUrl = args.length == 2 && args[0] == '--api-url';
+      if (args.isEmpty || hasOnlyApiUrl) {
+        return await _runner.run(['shell']) ?? ExitCode.success.code;
       }
 
-      // Extract command and command arguments
-      final commandArgs = args.where((arg) => !arg.startsWith('-')).toList();
-      final command = commandArgs.isEmpty ? 'shell' : commandArgs[0];
-      final remainingArgs = commandArgs.isEmpty ? [] : commandArgs.sublist(1);
-
-      logger.info('Running command: $command with args: $remainingArgs');
-
-      try {
-        final result = await _runner.runCommand(
-          await _runner.argParser.parse([command, ...remainingArgs])
-        );
-        return result ?? ExitCode.success.code;
-      } on UsageException catch (e) {
-        logger.err(e.message);
-        logger.info(e.usage);
-        return ExitCode.usage.code;
-      }
+      return await _runner.run(args) ?? ExitCode.success.code;
     } catch (e) {
       logger.err(ErrorFormatter().format(e.toString()));
       return ExitCode.software.code;

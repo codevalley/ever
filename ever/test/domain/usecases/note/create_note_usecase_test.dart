@@ -37,18 +37,20 @@ void main() {
 
   test('successful note creation', () async {
     final params = CreateNoteParams(
-      title: 'Test Note',
+
       content: 'Test Content',
       userId: 'user123',
+
     );
 
     final testNote = Note(
       id: 'note123',
-      title: params.title,
+
       content: params.content,
       userId: params.userId,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
+      processingStatus: ProcessingStatus.pending,
     );
 
     when(mockRepository.create(any))
@@ -68,9 +70,9 @@ void main() {
 
   test('handles validation error', () async {
     final params = CreateNoteParams(
-      title: '', // Empty title should cause validation error
-      content: 'Test Content',
+      content: '', // Empty content should cause validation error
       userId: 'user123',
+
     );
 
     when(mockRepository.create(any))
@@ -94,9 +96,10 @@ void main() {
 
   test('handles network error', () async {
     final params = CreateNoteParams(
-      title: 'Test Note',
+
       content: 'Test Content',
       userId: 'user123',
+
     );
 
     when(mockRepository.create(any))
@@ -120,18 +123,20 @@ void main() {
 
   test('prevents concurrent creations', () async {
     final params = CreateNoteParams(
-      title: 'Test Note',
+
       content: 'Test Content',
       userId: 'user123',
+
     );
 
     final testNote = Note(
       id: 'note123',
-      title: params.title,
+
       content: params.content,
       userId: params.userId,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
+      processingStatus: ProcessingStatus.pending,
     );
 
     final streamController = StreamController<Note>();

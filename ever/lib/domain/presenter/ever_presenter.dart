@@ -27,10 +27,11 @@ abstract class EverPresenter {
   Future<void> getCurrentUser();
 
   /// Note Actions
-  Future<void> createNote(String title, String content);
-  Future<void> updateNote(String noteId, {String? title, String? content});
+  Future<void> createNote(String content);
+  Future<void> updateNote(String noteId, {String? content});
   Future<void> deleteNote(String noteId);
-  Future<void> getNotes();
+  Future<Note> getNote(String noteId);
+  Future<List<Note>> listNotes({bool includeArchived = false});
 
   /// Task Actions
   Future<void> createTask(String title, DateTime dueDate);

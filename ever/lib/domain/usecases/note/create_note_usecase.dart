@@ -8,12 +8,10 @@ import '../base_usecase.dart';
 
 /// Parameters for creating a note
 class CreateNoteParams {
-  final String title;
   final String content;
   final String userId;
 
   const CreateNoteParams({
-    required this.title,
     required this.content,
     required this.userId,
   });
@@ -42,11 +40,10 @@ class CreateNoteUseCase extends BaseUseCase<CreateNoteParams> {
     try {
       final note = Note(
         id: '', // Will be set by backend
-        title: params.title,
         content: params.content,
         userId: params.userId,
         createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
+        processingStatus: ProcessingStatus.pending,
       );
 
       await for (final createdNote in _repository.create(note)) {

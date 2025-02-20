@@ -7,10 +7,7 @@ part 'note_model.g.dart';
 @JsonSerializable()
 class NoteModel {
   @JsonKey(name: 'id')
-  final String id;
-
-  @JsonKey(name: 'title')
-  final String title;
+  final int id;
 
   @JsonKey(name: 'content')
   final String content;
@@ -18,8 +15,8 @@ class NoteModel {
   @JsonKey(name: 'created_at')
   final DateTime createdAt;
 
-  @JsonKey(name: 'updated_at')
-  final DateTime updatedAt;
+  @JsonKey(name: 'updated_at', required: false)
+  final DateTime? updatedAt;
 
   @JsonKey(name: 'user_id')
   final String userId;
@@ -33,23 +30,26 @@ class NoteModel {
 
   @JsonKey(
     name: 'processing_status',
-    defaultValue: ProcessingStatus.notProcessed,
+    defaultValue: ProcessingStatus.pending,
   )
   final ProcessingStatus processingStatus;
 
-  @JsonKey(name: 'enrichment_data', defaultValue: <String, dynamic>{})
-  final Map<String, dynamic> enrichmentData;
+  @JsonKey(name: 'enrichment_data', required: false)
+  final Map<String, dynamic>? enrichmentData;
+
+  @JsonKey(name: 'processed_at', required: false)
+  final DateTime? processedAt;
 
   const NoteModel({
     required this.id,
-    required this.title,
     required this.content,
     required this.createdAt,
-    required this.updatedAt,
+    this.updatedAt,
     required this.userId,
     required this.attachments,
     required this.processingStatus,
-    required this.enrichmentData,
+    this.enrichmentData,
+    this.processedAt,
   });
 
   /// Create model from API JSON
@@ -67,32 +67,31 @@ class NoteModel {
   /// Convert to domain entity
   Note toDomain() {
     return Note(
-      id: id,
-      title: title,
+      id: id.toString(),
       content: content,
       userId: userId,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      enrichmentData: enrichmentData,
+      processingStatus: processingStatus,
+      processedAt: processedAt,
     );
   }
 
   /// Create a new note model for API creation
   factory NoteModel.forCreation({
-    required String title,
     required String content,
     required String userId,
   }) {
     final now = DateTime.now();
     return NoteModel(
-      id: '', // Will be set by backend
-      title: title,
+      id: 0, // Will be set by backend
       content: content,
       userId: userId,
       createdAt: now,
       updatedAt: now,
       attachments: [],
-      processingStatus: ProcessingStatus.notProcessed,
-      enrichmentData: {},
+      processingStatus: ProcessingStatus.pending,
     );
   }
 }

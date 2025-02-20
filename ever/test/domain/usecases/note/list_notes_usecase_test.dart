@@ -39,19 +39,19 @@ void main() {
     final testNotes = [
       Note(
         id: 'note1',
-        title: 'Test Note 1',
         content: 'Content 1',
         userId: 'user123',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
+        processingStatus: ProcessingStatus.pending,
       ),
       Note(
         id: 'note2',
-        title: 'Test Note 2',
         content: 'Content 2',
         userId: 'user123',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
+        processingStatus: ProcessingStatus.pending,
       ),
     ];
 
@@ -123,11 +123,11 @@ void main() {
     final testNotes = [
       Note(
         id: 'note1',
-        title: 'Test Note 1',
         content: 'Content 1',
         userId: 'user123',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
+        processingStatus: ProcessingStatus.pending,
       ),
     ];
     completer.complete(testNotes);

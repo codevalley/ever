@@ -21,7 +21,7 @@ class NoteDataSourceImpl implements NoteDataSource {
   final LocalCache cache;
   final RetryConfig retryConfig;
   final CircuitBreakerConfig circuitBreakerConfig;
-  final String accessToken;
+  final String Function() getAccessToken;
   
   final _eventController = StreamController<DomainEvent>.broadcast();
 
@@ -30,8 +30,10 @@ class NoteDataSourceImpl implements NoteDataSource {
     required this.cache,
     required this.retryConfig,
     required this.circuitBreakerConfig,
-    required this.accessToken,
+    required this.getAccessToken,
   });
+
+  String get accessToken => getAccessToken();
 
   @override
   Stream<DomainEvent> get events => _eventController.stream;
@@ -96,7 +98,7 @@ class NoteDataSourceImpl implements NoteDataSource {
           attempts++;
           final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.note.create}');
           final model = NoteModel.forCreation(
-            title: note.title,
+
             content: note.content,
             userId: note.userId,
           );
@@ -178,14 +180,14 @@ class NoteDataSourceImpl implements NoteDataSource {
           attempts++;
           final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.note.note(note.id)}');
           final model = NoteModel(
-            id: note.id,
-            title: note.title,
+            id: int.parse(note.id),
+
             content: note.content,
             userId: note.userId,
             createdAt: note.createdAt,
             updatedAt: DateTime.now(),
             attachments: [], // TODO: Handle attachments
-            processingStatus: ProcessingStatus.notProcessed,
+            processingStatus: ProcessingStatus.pending,
             enrichmentData: {},
           );
           final body = json.encode(model.toJson());
@@ -366,8 +368,9 @@ class NoteDataSourceImpl implements NoteDataSource {
 
       try {
         final responseData = json.decode(response.body);
-        final dataList = responseData['data'] as List;
-        final notes = dataList.map((data) => NoteModel.fromJson(data).toDomain()).toList();
+        final data = responseData['data'] as Map<String, dynamic>;
+        final items = data['items'] as List;
+        final notes = items.map((item) => NoteModel.fromJson(item).toDomain()).toList();
         
         if (attempts > 1) {
           _eventController.add(RetrySuccess(ApiConfig.operations.note.list, attempts));

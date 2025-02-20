@@ -34,26 +34,27 @@ void main() {
   test('successful note update', () async {
     final params = UpdateNoteParams(
       noteId: 'note123',
-      title: 'Updated Title',
+
       content: 'Updated Content',
     );
 
     final existingNote = Note(
       id: params.noteId,
-      title: 'Original Title',
       content: 'Original Content',
       userId: 'user123',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
+      processingStatus: ProcessingStatus.pending,
     );
 
     final updatedNote = Note(
       id: params.noteId,
-      title: params.title!,
+
       content: params.content!,
       userId: existingNote.userId,
       createdAt: existingNote.createdAt,
       updatedAt: DateTime.now(),
+      processingStatus: existingNote.processingStatus,
     );
 
     when(mockRepository.read(params.noteId))
@@ -77,7 +78,7 @@ void main() {
   test('handles note not found', () async {
     final params = UpdateNoteParams(
       noteId: 'nonexistent',
-      title: 'Updated Title',
+      content: 'Updated Content',
     );
 
     when(mockRepository.read(params.noteId))
@@ -96,16 +97,16 @@ void main() {
   test('handles validation error', () async {
     final params = UpdateNoteParams(
       noteId: 'note123',
-      title: '', // Empty title should cause validation error
+      content: '', // Empty content should cause validation error
     );
 
     final existingNote = Note(
       id: params.noteId,
-      title: 'Original Title',
       content: 'Original Content',
       userId: 'user123',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
+      processingStatus: ProcessingStatus.pending,
     );
 
     when(mockRepository.read(params.noteId))
@@ -132,11 +133,11 @@ void main() {
 
     final existingNote = Note(
       id: params.noteId,
-      title: 'Original Title',
       content: 'Original Content',
       userId: 'user123',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
+      processingStatus: ProcessingStatus.pending,
     );
 
     when(mockRepository.read(params.noteId))
@@ -158,17 +159,17 @@ void main() {
   test('prevents concurrent updates', () async {
     final params = UpdateNoteParams(
       noteId: 'note123',
-      title: 'Updated Title',
+
       content: 'Updated Content',
     );
 
     final existingNote = Note(
       id: params.noteId,
-      title: 'Original Title',
       content: 'Original Content',
       userId: 'user123',
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
+      processingStatus: ProcessingStatus.pending,
     );
 
     final readCompleter = Completer<Note>();
@@ -194,11 +195,12 @@ void main() {
 
     final updatedNote = Note(
       id: params.noteId,
-      title: params.title!,
+
       content: params.content!,
       userId: existingNote.userId,
       createdAt: existingNote.createdAt,
       updatedAt: DateTime.now(),
+      processingStatus: existingNote.processingStatus,
     );
     updateCompleter.complete(updatedNote);
     await Future.delayed(Duration.zero);

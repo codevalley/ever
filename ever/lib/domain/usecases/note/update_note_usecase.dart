@@ -9,12 +9,10 @@ import '../base_usecase.dart';
 /// Parameters for updating a note
 class UpdateNoteParams {
   final String noteId;
-  final String? title;
   final String? content;
 
   const UpdateNoteParams({
     required this.noteId,
-    this.title,
     this.content,
   });
 }
@@ -60,11 +58,11 @@ class UpdateNoteUseCase extends BaseUseCase<UpdateNoteParams> {
       // Create updated note with new values
       final updatedNote = Note(
         id: params.noteId,
-        title: params.title ?? existingNote.title,
         content: params.content ?? existingNote.content,
         userId: existingNote.userId,
         createdAt: existingNote.createdAt,
         updatedAt: DateTime.now(),
+        processingStatus: ProcessingStatus.pending,
       );
 
       // Update note and wait for completion

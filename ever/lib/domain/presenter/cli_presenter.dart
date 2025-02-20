@@ -3,12 +3,18 @@ import 'dart:async';
 import 'package:rxdart/rxdart.dart';
 import '../../core/logging.dart';
 import '../core/events.dart';
+import '../events/note_events.dart';
 import '../events/user_events.dart';
 import '../usecases/user/get_current_user_usecase.dart';
 import '../usecases/user/login_usecase.dart';
 import '../usecases/user/refresh_token_usecase.dart';
 import '../usecases/user/register_usecase.dart';
 import '../usecases/user/sign_out_usecase.dart';
+import '../usecases/note/create_note_usecase.dart';
+import '../usecases/note/update_note_usecase.dart';
+import '../usecases/note/delete_note_usecase.dart';
+import '../usecases/note/list_notes_usecase.dart';
+import '../entities/note.dart';
 import 'ever_presenter.dart';
 
 /// CLI implementation of the Ever presenter
@@ -19,6 +25,12 @@ class CliPresenter implements EverPresenter {
   final RefreshTokenUseCase _refreshTokenUseCase;
   final GetCurrentUserUseCase _getCurrentUserUseCase;
 
+  // Note use cases
+  final CreateNoteUseCase _createNoteUseCase;
+  final UpdateNoteUseCase _updateNoteUseCase;
+  final DeleteNoteUseCase _deleteNoteUseCase;
+  final ListNotesUseCase _listNotesUseCase;
+
   final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
   final List<StreamSubscription> _subscriptions = [];
 
@@ -28,11 +40,19 @@ class CliPresenter implements EverPresenter {
     required SignOutUseCase signOutUseCase,
     required RefreshTokenUseCase refreshTokenUseCase,
     required GetCurrentUserUseCase getCurrentUserUseCase,
+    required CreateNoteUseCase createNoteUseCase,
+    required UpdateNoteUseCase updateNoteUseCase,
+    required DeleteNoteUseCase deleteNoteUseCase,
+    required ListNotesUseCase listNotesUseCase,
   })  : _registerUseCase = registerUseCase,
         _loginUseCase = loginUseCase,
         _signOutUseCase = signOutUseCase,
         _refreshTokenUseCase = refreshTokenUseCase,
-        _getCurrentUserUseCase = getCurrentUserUseCase {
+        _getCurrentUserUseCase = getCurrentUserUseCase,
+        _createNoteUseCase = createNoteUseCase,
+        _updateNoteUseCase = updateNoteUseCase,
+        _deleteNoteUseCase = deleteNoteUseCase,
+        _listNotesUseCase = listNotesUseCase {
     // Subscribe to all use case events
     _subscriptions.addAll([
       _registerUseCase.events.listen(_handleUserEvents),
@@ -40,6 +60,10 @@ class CliPresenter implements EverPresenter {
       _signOutUseCase.events.listen(_handleUserEvents),
       _refreshTokenUseCase.events.listen(_handleTokenEvents),
       _getCurrentUserUseCase.events.listen(_handleUserEvents),
+      _createNoteUseCase.events.listen(_handleNoteEvents),
+      _updateNoteUseCase.events.listen(_handleNoteEvents),
+      _deleteNoteUseCase.events.listen(_handleNoteEvents),
+      _listNotesUseCase.events.listen(_handleNoteEvents),
     ]);
   }
 
@@ -69,7 +93,7 @@ class CliPresenter implements EverPresenter {
   }
 
   void _handleUserEvents(DomainEvent event) {
-    dprint('CLI Presenter handling event: ${event.runtimeType}');
+    iprint('CLI Presenter handling event: ${event.runtimeType}');
     
     if (event is CurrentUserRetrieved) {
       _updateState(
@@ -137,10 +161,113 @@ class CliPresenter implements EverPresenter {
     }
   }
 
+  void _handleNoteEvents(DomainEvent event) {
+    dprint('CLI Presenter handling note event: ${event.runtimeType}');
+    
+    if (event is NoteCreated) {
+      dprint('Note created: ${event.note.id}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: [..._stateController.value.notes, event.note],
+          error: null,
+        ),
+      );
+    } else if (event is NoteUpdated) {
+      dprint('Note updated: ${event.note.id}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: _stateController.value.notes.map(
+            (note) => note.id == event.note.id ? event.note : note
+          ).toList(),
+          error: null,
+        ),
+      );
+    } else if (event is NoteDeleted) {
+      dprint('Note deleted: ${event.noteId}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: _stateController.value.notes.where(
+            (note) => note.id != event.noteId
+          ).toList(),
+          error: null,
+        ),
+      );
+    } else if (event is NotesRetrieved) {
+      dprint('Notes retrieved: ${event.notes.length} notes');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          notes: event.notes,
+          error: null,
+        ),
+      );
+    } else if (event is OperationFailure) {
+      eprint('Note operation failed: ${event.error}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: event.error,
+        ),
+      );
+    }
+  }
+
   @override
   Future<void> register(String username) async {
     _updateState(EverState.initial().copyWith(isLoading: true));
-    _registerUseCase.execute(RegisterParams(username: username));
+    
+    try {
+      _registerUseCase.execute(RegisterParams(username: username));
+      
+      // Create a completer for registration
+      final registerCompleter = Completer<void>();
+      StreamSubscription? registerSubscription;
+      
+      registerSubscription = _registerUseCase.events.listen(
+        (event) {
+          dprint('Register event: ${event.runtimeType}');
+          if (event is UserRegistered) {
+            dprint('User registered successfully');
+            if (!registerCompleter.isCompleted) registerCompleter.complete();
+          } else if (event is OperationFailure) {
+            eprint('Registration failed: ${event.error}');
+            if (!registerCompleter.isCompleted) registerCompleter.completeError(Exception(event.error));
+          }
+        },
+        onError: (error) {
+          eprint('Registration stream error: $error');
+          if (!registerCompleter.isCompleted) registerCompleter.completeError(error);
+        },
+        onDone: () {
+          dprint('Registration stream completed');
+          if (!registerCompleter.isCompleted) {
+            registerCompleter.completeError(Exception('Registration stream completed without result'));
+          }
+        },
+      );
+
+      // Wait for registration with timeout
+      try {
+        await registerCompleter.future.timeout(Duration(seconds: 10));
+      } catch (e) {
+        eprint('Registration timeout: $e');
+        throw Exception('Failed to register: $e');
+      } finally {
+        await registerSubscription.cancel();
+      }
+    } catch (e) {
+      eprint('Registration failed: ${e.toString()}');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+      rethrow;
+    }
   }
 
   @override
@@ -231,6 +358,7 @@ class CliPresenter implements EverPresenter {
           error: e.toString(),
         ),
       );
+      rethrow;
     }
   }
 
@@ -252,26 +380,123 @@ class CliPresenter implements EverPresenter {
     _getCurrentUserUseCase.execute();
   }
 
+  // Note Actions
   @override
-  Future<void> createNote(String title, String content) async {
-    throw UnimplementedError();
+  Future<void> createNote(String content) async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to create notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      await _createNoteUseCase.execute(CreateNoteParams(
+        content: content,
+        userId: _stateController.value.currentUser!.id,
+      ));
+    } catch (e) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+      rethrow;
+    }
   }
 
   @override
-  Future<void> updateNote(String noteId, {String? title, String? content}) async {
-    throw UnimplementedError();
+  Future<void> updateNote(String noteId, {String? content}) async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to update notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      await _updateNoteUseCase.execute(UpdateNoteParams(
+        noteId: noteId,
+        content: content,
+      ));
+    } catch (e) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+      rethrow;
+    }
   }
 
   @override
   Future<void> deleteNote(String noteId) async {
-    throw UnimplementedError();
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to delete notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      await _deleteNoteUseCase.execute(DeleteNoteParams(noteId: noteId));
+    } catch (e) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+      rethrow;
+    }
   }
 
   @override
-  Future<void> getNotes() async {
-    throw UnimplementedError();
+  Future<Note> getNote(String noteId) async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to get notes');
+    }
+    
+    final note = _stateController.value.notes.firstWhere(
+      (note) => note.id == noteId,
+      orElse: () => throw Exception('Note not found'),
+    );
+    
+    return note;
   }
 
+  @override
+  Future<List<Note>> listNotes({bool includeArchived = false}) async {
+    dprint('Listing notes (includeArchived: $includeArchived)');
+    if (!_stateController.value.isAuthenticated) {
+      eprint('Cannot list notes: not authenticated');
+      throw Exception('Must be authenticated to list notes');
+    }
+    
+    _updateState(_stateController.value.copyWith(isLoading: true));
+    
+    try {
+      dprint('Executing list notes use case');
+      await _listNotesUseCase.execute(ListNotesParams(
+        filters: {
+          'user_id': _stateController.value.currentUser!.id,
+          if (!includeArchived) 'archived': false,
+        },
+      ));
+      dprint('List notes use case completed, returning ${_stateController.value.notes.length} notes');
+      return _stateController.value.notes;
+    } catch (e) {
+      eprint('Failed to list notes: $e');
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  // Task Actions
   @override
   Future<void> createTask(String title, DateTime dueDate) async {
     throw UnimplementedError();

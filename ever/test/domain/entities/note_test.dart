@@ -7,29 +7,29 @@ void main() {
       final now = DateTime.now();
       final note1 = Note(
         id: 'note123',
-        title: 'Test Note',
         content: 'Test Content',
         userId: 'user123',
         createdAt: now,
         updatedAt: now,
+        processingStatus: ProcessingStatus.pending,
       );
 
       final note2 = Note(
         id: 'note123',
-        title: 'Test Note',
         content: 'Test Content',
         userId: 'user123',
         createdAt: now,
         updatedAt: now,
+        processingStatus: ProcessingStatus.pending,
       );
 
       final differentNote = Note(
         id: 'note456',
-        title: 'Different Note',
         content: 'Different Content',
         userId: 'user123',
         createdAt: now,
         updatedAt: now,
+        processingStatus: ProcessingStatus.pending,
       );
 
       expect(note1, equals(note2));
@@ -41,20 +41,20 @@ void main() {
     test('different timestamps affect equality', () {
       final note1 = Note(
         id: 'note123',
-        title: 'Test Note',
         content: 'Test Content',
         userId: 'user123',
         createdAt: DateTime(2024, 1, 1),
         updatedAt: DateTime(2024, 1, 1),
+        processingStatus: ProcessingStatus.pending,
       );
 
       final note2 = Note(
         id: 'note123',
-        title: 'Test Note',
         content: 'Test Content',
         userId: 'user123',
         createdAt: DateTime(2024, 1, 1),
         updatedAt: DateTime(2024, 1, 2), // Different update time
+        processingStatus: ProcessingStatus.pending,
       );
 
       expect(note1, isNot(equals(note2)));
@@ -88,8 +88,7 @@ void main() {
 
   group('ProcessingStatus', () {
     test('enum values', () {
-      expect(ProcessingStatus.values, hasLength(4));
-      expect(ProcessingStatus.values, contains(ProcessingStatus.notProcessed));
+      expect(ProcessingStatus.values, hasLength(3));
       expect(ProcessingStatus.values, contains(ProcessingStatus.pending));
       expect(ProcessingStatus.values, contains(ProcessingStatus.completed));
       expect(ProcessingStatus.values, contains(ProcessingStatus.failed));

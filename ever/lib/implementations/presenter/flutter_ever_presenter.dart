@@ -5,6 +5,7 @@ import '../../core/logging.dart';
 import '../../domain/core/events.dart';
 import '../../domain/events/note_events.dart';
 import '../../domain/events/user_events.dart';
+import '../../domain/entities/note.dart';
 import '../../domain/presenter/ever_presenter.dart';
 import '../../domain/usecases/note/create_note_usecase.dart';
 import '../../domain/usecases/note/update_note_usecase.dart';
@@ -281,7 +282,7 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   @override
-  Future<void> createNote(String title, String content) async {
+  Future<void> createNote(String content) async {
     if (!_stateController.value.isAuthenticated) {
       throw Exception('Must be authenticated to create notes');
     }
@@ -290,7 +291,7 @@ class FlutterEverPresenter implements EverPresenter {
     
     try {
       await _createNoteUseCase.execute(CreateNoteParams(
-        title: title,
+
         content: content,
         userId: _stateController.value.currentUser!.id,
       ));
@@ -315,7 +316,7 @@ class FlutterEverPresenter implements EverPresenter {
     try {
       await _updateNoteUseCase.execute(UpdateNoteParams(
         noteId: noteId,
-        title: title,
+
         content: content,
       ));
     } catch (e) {
@@ -349,17 +350,35 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   @override
-  Future<void> getNotes() async {
+  Future<Note> getNote(String noteId) async {
     if (!_stateController.value.isAuthenticated) {
       throw Exception('Must be authenticated to get notes');
+    }
+    
+    final note = _stateController.value.notes.firstWhere(
+      (note) => note.id == noteId,
+      orElse: () => throw Exception('Note not found'),
+    );
+    
+    return note;
+  }
+
+  @override
+  Future<List<Note>> listNotes({bool includeArchived = false}) async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to list notes');
     }
     
     _updateState(_stateController.value.copyWith(isLoading: true));
     
     try {
       await _listNotesUseCase.execute(ListNotesParams(
-        filters: {'user_id': _stateController.value.currentUser!.id},
+        filters: {
+          'user_id': _stateController.value.currentUser!.id,
+          if (!includeArchived) 'archived': false,
+        },
       ));
+      return _stateController.value.notes;
     } catch (e) {
       _updateState(
         _stateController.value.copyWith(
@@ -367,6 +386,7 @@ class FlutterEverPresenter implements EverPresenter {
           error: e.toString(),
         ),
       );
+      rethrow;
     }
   }
 
