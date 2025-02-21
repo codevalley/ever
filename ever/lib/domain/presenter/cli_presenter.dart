@@ -221,6 +221,20 @@ class CliPresenter implements EverPresenter {
           error: null,
         ),
       );
+    } else if (event is OperationInProgress) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: true,
+          error: null, // Clear any previous errors when starting new operation
+        ),
+      );
+    } else if (event is OperationSuccess) {
+      _updateState(
+        _stateController.value.copyWith(
+          isLoading: false,
+          error: null, // Ensure error is cleared on success
+        ),
+      );
     } else if (event is OperationFailure) {
       eprint('Note operation failed: ${event.error}');
       _updateState(
@@ -475,8 +489,37 @@ class CliPresenter implements EverPresenter {
     
     _updateState(_stateController.value.copyWith(isLoading: true));
     
+    // Use BehaviorSubject to handle the note stream
+    final noteSubject = BehaviorSubject<Note>();
+    var hasEmittedError = false;
+    
     _getNoteUseCase.execute(GetNoteParams(id: noteId));
-    return _getNoteUseCase.note;
+    
+    var subscription = _getNoteUseCase.note.listen(
+      (note) {
+        if (!noteSubject.isClosed) {
+          noteSubject.add(note);
+        }
+      },
+      onError: (e) {
+        if (!hasEmittedError && !noteSubject.isClosed) {
+          hasEmittedError = true;
+          noteSubject.addError(e);
+        }
+      },
+      onDone: () {
+        if (!noteSubject.isClosed) {
+          noteSubject.close();
+        }
+      },
+    );
+    
+    // Ensure subscription is cancelled when the stream is cancelled
+    noteSubject.onCancel = () {
+      subscription.cancel();
+    };
+    
+    return noteSubject.stream;
   }
 
   @override

@@ -35,42 +35,73 @@ class ViewNoteCommand extends EverCommand {
 
     try {
       final completer = Completer<Note>();
-      var hasError = false;
-      var subscription = presenter.getNote(id).listen(
+      StreamSubscription<Note>? subscription;
+      StreamSubscription? stateSubscription;
+      var errorOccurred = false;
+      
+      // Listen to state changes to handle loading and errors
+      stateSubscription = presenter.state.listen(
+        (state) {
+          if (state.error != null && !errorOccurred) {
+            errorOccurred = true;
+            logger.err(state.error!);
+          }
+        },
+        onError: (e) {
+          if (!errorOccurred) {
+            errorOccurred = true;
+            logger.err(e.toString());
+          }
+        },
+      );
+      
+      subscription = presenter.getNote(id).listen(
         (note) {
           if (!completer.isCompleted) {
             completer.complete(note);
           }
         },
         onError: (e) {
-          if (!completer.isCompleted && !hasError) {
-            hasError = true;
+          if (!completer.isCompleted) {
+            if (!errorOccurred) {
+              errorOccurred = true;
+              logger.err(e.toString());
+            }
             completer.completeError(e);
           }
         },
         onDone: () {
-          if (!completer.isCompleted && !hasError) {
-            completer.completeError(Exception('Note not found'));
+          if (!completer.isCompleted && !errorOccurred) {
+            errorOccurred = true;
+            final error = Exception('Note not found');
+            logger.err(error.toString());
+            completer.completeError(error);
           }
         },
-        cancelOnError: true,
       );
 
       try {
         final note = await completer.future.timeout(
           Duration(seconds: 10),
           onTimeout: () {
-            subscription.cancel();
+            subscription?.cancel();
+            stateSubscription?.cancel();
             throw TimeoutException('Operation timed out');
           },
         );
 
         final formatter = NoteFormatter();
         logger.info(formatter.formatNote(note));
+        await subscription.cancel();
+        await stateSubscription.cancel();
         return ExitCode.success.code;
       } catch (e) {
         await subscription.cancel();
-        rethrow;
+        await stateSubscription.cancel();
+        if (!errorOccurred) {
+          logger.err(e.toString());
+        }
+        return ExitCode.software.code;
       }
     } on FormatException {
       logger.err('Invalid note ID format');
@@ -79,7 +110,9 @@ class ViewNoteCommand extends EverCommand {
       logger.err(e.toString());
       return ExitCode.software.code;
     } catch (e) {
-      logger.err(e.toString());
+      if (!e.toString().contains('Note not found')) {
+        logger.err(e.toString());
+      }
       return ExitCode.software.code;
     }
   }
