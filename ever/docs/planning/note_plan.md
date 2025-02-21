@@ -46,6 +46,7 @@ The Note feature allows users to create, read, update, and delete notes with sup
   - [x] Processing status updates
   - [x] Retry mechanism
   - [x] Circuit breaker
+  - [x] Reactive stream-based note retrieval
 - Repository implementation ✓
   - [x] Event transformation
   - [x] Resilience patterns
@@ -58,6 +59,11 @@ The Note feature allows users to create, read, update, and delete notes with sup
   - [x] State management
   - [x] Event handling
   - [x] Use case coordination
+  - [x] Stream-based note retrieval
+- CLI Implementation ✓
+  - [x] View command with stream handling
+  - [x] Delete command with stream handling
+  - [x] Update command with stream handling
 
 ### 3. Testing ✓
 1. Unit Tests ✓

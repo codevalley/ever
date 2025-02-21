@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:ever/domain/core/events.dart';
 import 'package:ever/domain/events/user_events.dart';
 import 'package:ever/domain/entities/user.dart';
+import 'package:ever/domain/entities/note.dart';
 import 'package:ever/domain/presenter/ever_presenter.dart';
 import 'package:ever/domain/usecases/note/create_note_usecase.dart';
 import 'package:ever/domain/usecases/note/update_note_usecase.dart';
 import 'package:ever/domain/usecases/note/delete_note_usecase.dart';
 import 'package:ever/domain/usecases/note/list_notes_usecase.dart';
+import 'package:ever/domain/usecases/note/get_note_usecase.dart';
 import 'package:ever/domain/usecases/user/get_current_user_usecase.dart';
 import 'package:ever/domain/usecases/user/login_usecase.dart';
 import 'package:ever/domain/usecases/user/refresh_token_usecase.dart';
@@ -30,6 +32,7 @@ import 'flutter_ever_presenter_test.mocks.dart';
   UpdateNoteUseCase,
   DeleteNoteUseCase,
   ListNotesUseCase,
+  GetNoteUseCase,
 ])
 void main() {
   late MockRegisterUseCase mockRegisterUseCase;
@@ -41,6 +44,7 @@ void main() {
   late MockUpdateNoteUseCase mockUpdateNoteUseCase;
   late MockDeleteNoteUseCase mockDeleteNoteUseCase;
   late MockListNotesUseCase mockListNotesUseCase;
+  late MockGetNoteUseCase mockGetNoteUseCase;
   late FlutterEverPresenter presenter;
   late List<EverState> states;
   late StreamController<DomainEvent> registerEventController;
@@ -52,6 +56,7 @@ void main() {
   late StreamController<DomainEvent> updateNoteEventController;
   late StreamController<DomainEvent> deleteNoteEventController;
   late StreamController<DomainEvent> listNotesEventController;
+  late StreamController<DomainEvent> getNoteEventController;
   late StreamSubscription<EverState>? stateSubscription;
 
   setUp(() async {
@@ -64,6 +69,7 @@ void main() {
     mockUpdateNoteUseCase = MockUpdateNoteUseCase();
     mockDeleteNoteUseCase = MockDeleteNoteUseCase();
     mockListNotesUseCase = MockListNotesUseCase();
+    mockGetNoteUseCase = MockGetNoteUseCase();
 
     registerEventController = StreamController<DomainEvent>();
     loginEventController = StreamController<DomainEvent>();
@@ -74,6 +80,7 @@ void main() {
     updateNoteEventController = StreamController<DomainEvent>();
     deleteNoteEventController = StreamController<DomainEvent>();
     listNotesEventController = StreamController<DomainEvent>();
+    getNoteEventController = StreamController<DomainEvent>();
 
     when(mockRegisterUseCase.events).thenAnswer((_) => registerEventController.stream);
     when(mockLoginUseCase.events).thenAnswer((_) => loginEventController.stream);
@@ -84,6 +91,7 @@ void main() {
     when(mockUpdateNoteUseCase.events).thenAnswer((_) => updateNoteEventController.stream);
     when(mockDeleteNoteUseCase.events).thenAnswer((_) => deleteNoteEventController.stream);
     when(mockListNotesUseCase.events).thenAnswer((_) => listNotesEventController.stream);
+    when(mockGetNoteUseCase.events).thenAnswer((_) => getNoteEventController.stream);
 
     presenter = FlutterEverPresenter(
       registerUseCase: mockRegisterUseCase,
@@ -95,6 +103,7 @@ void main() {
       updateNoteUseCase: mockUpdateNoteUseCase,
       deleteNoteUseCase: mockDeleteNoteUseCase,
       listNotesUseCase: mockListNotesUseCase,
+      getNoteUseCase: mockGetNoteUseCase,
     );
 
     states = [];
@@ -118,6 +127,7 @@ void main() {
       updateNoteEventController,
       deleteNoteEventController,
       listNotesEventController,
+      getNoteEventController,
     ];
 
     for (final controller in controllers) {
@@ -394,6 +404,87 @@ void main() {
       expect(states[1], isEverState(isLoading: true));
       expect(states[2], isEverState(error: 'Invalid credentials'));
       expect(states[3], isEverState(isLoading: true, error: null));
+    });
+  });
+
+  group('note operations', () {
+    late User testUser;
+
+    setUp(() async {
+      // Authenticate user first
+      testUser = User(
+        id: '1',
+        username: 'testuser',
+        createdAt: DateTime.now(),
+      );
+      getCurrentUserEventController.add(CurrentUserRetrieved(testUser));
+      await pumpEventQueue();
+    });
+
+    test('getNote executes get note use case with correct parameters', () async {
+      // Arrange
+      final noteId = '123';
+      final noteController = StreamController<Note>();
+      when(mockGetNoteUseCase.note).thenAnswer((_) => noteController.stream);
+      
+      // Act
+      final noteStream = presenter.getNote(noteId);
+      await pumpEventQueue();
+      
+      // Assert
+      verify(mockGetNoteUseCase.execute(argThat(
+        isA<GetNoteParams>().having((p) => p.id, 'id', noteId),
+      ))).called(1);
+
+      // Complete the stream to avoid timeout
+      final testNote = Note(
+        id: noteId,
+        content: 'test',
+        userId: testUser.id,
+        createdAt: DateTime.now(),
+        processingStatus: ProcessingStatus.pending,
+      );
+      
+      noteController.add(testNote);
+      await pumpEventQueue();
+      
+      // Wait for the first note from the stream
+      final receivedNote = await noteStream.first;
+      expect(receivedNote, equals(testNote));
+      
+      // Cleanup
+      await noteController.close();
+    });
+
+    test('getNote handles errors correctly', () async {
+      // Arrange
+      final noteId = '123';
+      final error = 'Note not found';
+      final noteController = StreamController<Note>();
+      when(mockGetNoteUseCase.note).thenAnswer((_) => noteController.stream);
+      
+      // Act
+      final noteStream = presenter.getNote(noteId);
+      getNoteEventController.add(OperationInProgress('get_note'));
+      await pumpEventQueue();
+      
+      // Add error to both streams
+      getNoteEventController.add(OperationFailure('get_note', error));
+      noteController.addError(error);
+      await pumpEventQueue();
+      
+      // Assert states
+      expect(states.length, 4); // Initial + Auth + Loading + Error
+      expect(states[0], isEverState());
+      expect(states[1], isEverState(isAuthenticated: true, currentUser: testUser));
+      expect(states[2], isEverState(isAuthenticated: true, currentUser: testUser, isLoading: true));
+      expect(states[3], isEverState(isAuthenticated: true, currentUser: testUser, isLoading: false, error: error));
+      
+      // Assert stream error
+      expect(() => noteStream.first, throwsA(equals(error)));
+      
+      // Cleanup
+      await noteController.close();
     });
   });
 } 
