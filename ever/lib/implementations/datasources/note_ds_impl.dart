@@ -283,60 +283,78 @@ class NoteDataSourceImpl implements NoteDataSource {
   }
 
   @override
-  Stream<void> delete(String id) async* {
+  Stream<String> delete(String id) async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.note.delete));
     var attempts = 0;
+    final startTime = DateTime.now();
 
-    try {
-      await _executeWithRetryFuture(
-        ApiConfig.operations.note.delete,
-        () async {
-          attempts++;
-          final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.note.note(id)}');
-          
-          iprint('API Request: DELETE $url', '🌐');
-          iprint('Request Headers: ${ApiConfig.headers.withAuth(accessToken)}', '📤');
-          
-          final response = await client.delete(
-            url,
-            headers: ApiConfig.headers.withAuth(accessToken),
-          );
+    while (true) {
+      try {
+        attempts++;
+        iprint('Attempt $attempts executing delete note', '🔄');
+        
+        final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.note.note(id)}');
+        
+        iprint('API Request: DELETE $url', '🌐');
+        iprint('Request Headers: ${ApiConfig.headers.withAuth(accessToken)}', '📤');
+        
+        final response = await client.delete(
+          url,
+          headers: ApiConfig.headers.withAuth(accessToken),
+        );
 
-          iprint('API Response Status: ${response.statusCode}', '📥');
-          iprint('Response Body: ${response.body}', '📦');
+        iprint('API Response Status: ${response.statusCode}', '📥');
+        iprint('Response Body: ${response.body}', '📦');
 
-          if (response.statusCode == 204) {
-            return response;
-          } else {
-            String error;
-            try {
-              error = json.decode(response.body)[ApiConfig.keys.common.message] ?? 'Unknown error';
-            } catch (e) {
-              error = 'Failed to parse error message: ${response.body}';
-            }
-            
-            if (response.statusCode >= 500) {
-              throw http.ClientException('Service unavailable');
-            }
-            throw Exception(error);
+        if (response.statusCode == 204 || response.statusCode == 200) {
+          if (attempts > 1) {
+            _eventController.add(RetrySuccess(ApiConfig.operations.note.delete, attempts));
           }
-        },
-      );
-
-      if (attempts > 1) {
-        _eventController.add(RetrySuccess(ApiConfig.operations.note.delete, attempts));
+          
+          // Clear cache for the deleted note
+          await cache.remove(_getNoteKey(id));
+          // Invalidate list cache since we deleted a note
+          await cache.remove(_noteListCacheKey);
+          
+          _eventController.add(OperationSuccess(ApiConfig.operations.note.delete));
+          _eventController.add(NoteDeleted(id));
+          
+          yield id;
+          return;
+        } else {
+          String error;
+          try {
+            error = json.decode(response.body)[ApiConfig.keys.common.message] ?? 'Unknown error';
+          } catch (e) {
+            error = 'Failed to parse error message: ${response.body}';
+          }
+          
+          if (response.statusCode >= 500) {
+            throw http.ClientException('Service unavailable');
+          }
+          throw Exception(error);
+        }
+      } catch (e) {
+        final elapsed = DateTime.now().difference(startTime);
+        wprint('delete_note failed after ${elapsed.inMilliseconds}ms: $e');
+        
+        if (!retryConfig.shouldRetry(e) || attempts >= retryConfig.maxAttempts) {
+          if (attempts > 1) {
+            eprint('delete_note failed after $attempts attempts', '❌');
+            _eventController.add(RetryExhausted(ApiConfig.operations.note.delete, e, attempts));
+          }
+          _eventController.add(OperationFailure(
+            ApiConfig.operations.note.delete,
+            e.toString(),
+          ));
+          rethrow;
+        }
+        
+        final delay = retryConfig.getDelayForAttempt(attempts);
+        iprint('Waiting ${delay.inMilliseconds}ms before attempt ${attempts + 1}', '⏳');
+        _eventController.add(RetryAttempt(ApiConfig.operations.note.delete, attempts, delay, e));
+        await Future.delayed(delay);
       }
-      
-      _eventController.add(OperationSuccess(ApiConfig.operations.note.delete));
-      _eventController.add(NoteDeleted(id));
-      
-      yield id; // double check if this is correct
-    } catch (e) {
-      _eventController.add(OperationFailure(
-        ApiConfig.operations.note.delete,
-        e.toString(),
-      ));
-      rethrow;
     }
   }
 

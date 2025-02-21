@@ -31,10 +31,41 @@ void main() {
     await useCase.dispose();
   });
 
+  test('validates empty note id', () async {
+    final params = UpdateNoteParams(
+      noteId: '',
+      content: 'Updated Content',
+    );
+
+    await useCase.execute(params);
+    await Future.delayed(Duration.zero);
+
+    expect(events, hasLength(1));
+    expect(events[0], isA<OperationFailure>());
+    expect((events[0] as OperationFailure).error, equals('Note ID cannot be empty'));
+    verifyNever(mockRepository.read(any));
+    verifyNever(mockRepository.update(any));
+  });
+
+  test('validates empty content', () async {
+    final params = UpdateNoteParams(
+      noteId: 'note123',
+      content: '',
+    );
+
+    await useCase.execute(params);
+    await Future.delayed(Duration.zero);
+
+    expect(events, hasLength(1));
+    expect(events[0], isA<OperationFailure>());
+    expect((events[0] as OperationFailure).error, equals('Content cannot be empty if provided'));
+    verifyNever(mockRepository.read(any));
+    verifyNever(mockRepository.update(any));
+  });
+
   test('successful note update', () async {
     final params = UpdateNoteParams(
       noteId: 'note123',
-
       content: 'Updated Content',
     );
 
@@ -49,7 +80,6 @@ void main() {
 
     final updatedNote = Note(
       id: params.noteId,
-
       content: params.content!,
       userId: existingNote.userId,
       createdAt: existingNote.createdAt,
@@ -94,10 +124,10 @@ void main() {
     expect((events[1] as OperationFailure).error, equals('Note not found'));
   });
 
-  test('handles validation error', () async {
+  test('handles network error with retries', () async {
     final params = UpdateNoteParams(
       noteId: 'note123',
-      content: '', // Empty content should cause validation error
+      content: 'Updated Content',
     );
 
     final existingNote = Note(
@@ -109,23 +139,47 @@ void main() {
       processingStatus: ProcessingStatus.pending,
     );
 
+    final updatedNote = Note(
+      id: params.noteId,
+      content: params.content!,
+      userId: existingNote.userId,
+      createdAt: existingNote.createdAt,
+      updatedAt: DateTime.now(),
+      processingStatus: existingNote.processingStatus,
+    );
+
     when(mockRepository.read(params.noteId))
         .thenAnswer((_) => Stream.value(existingNote));
 
+    // Mock repository to fail with network error 3 times then succeed
+    var attempts = 0;
     when(mockRepository.update(any))
-        .thenAnswer((_) => Stream.error('Invalid note data'));
+        .thenAnswer((_) {
+          attempts++;
+          if (attempts <= 3) {
+            return Stream.error('Network error');
+          }
+          return Stream.value(updatedNote);
+        });
 
     await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    // Wait for all retries (100ms + 200ms + 300ms)
+    await Future.delayed(Duration(milliseconds: 700));
 
-    expect(events, hasLength(2));
-    expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('update_note'));
-    expect(events[1], isA<OperationFailure>());
-    expect((events[1] as OperationFailure).error, equals('Invalid note data'));
+    // Verify events sequence
+    expect(events.length, equals(6));
+    expect(events[0], isA<OperationInProgress>()); // Initial attempt
+    expect(events[1], isA<OperationInProgress>()); // First retry
+    expect(events[2], isA<OperationInProgress>()); // Second retry
+    expect(events[3], isA<OperationInProgress>()); // Third retry
+    expect(events[4], isA<NoteUpdated>());         // Success on fourth attempt
+    expect(events[5], isA<OperationSuccess>());    // Final success
+
+    // Verify repository was called 4 times
+    verify(mockRepository.update(any)).called(4);
   });
 
-  test('handles network error', () async {
+  test('handles network error exhausting retries', () async {
     final params = UpdateNoteParams(
       noteId: 'note123',
       content: 'Updated Content',
@@ -143,23 +197,30 @@ void main() {
     when(mockRepository.read(params.noteId))
         .thenAnswer((_) => Stream.value(existingNote));
 
+    // Mock repository to always fail with network error
     when(mockRepository.update(any))
         .thenAnswer((_) => Stream.error('Network error'));
 
     await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    // Wait for all retries (100ms + 200ms + 300ms)
+    await Future.delayed(Duration(milliseconds: 700));
 
-    expect(events, hasLength(2));
+    // Verify events sequence
+    expect(events.length, equals(5));
     expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('update_note'));
-    expect(events[1], isA<OperationFailure>());
-    expect((events[1] as OperationFailure).error, equals('Network error'));
+    expect(events[1], isA<OperationInProgress>());
+    expect(events[2], isA<OperationInProgress>());
+    expect(events[3], isA<OperationInProgress>());
+    expect(events[4], isA<OperationFailure>());
+    expect((events[4] as OperationFailure).error, equals('Network error'));
+
+    // Verify repository was called 4 times (initial + 3 retries)
+    verify(mockRepository.update(any)).called(4);
   });
 
   test('prevents concurrent updates', () async {
     final params = UpdateNoteParams(
       noteId: 'note123',
-
       content: 'Updated Content',
     );
 
@@ -195,7 +256,6 @@ void main() {
 
     final updatedNote = Note(
       id: params.noteId,
-
       content: params.content!,
       userId: existingNote.userId,
       createdAt: existingNote.createdAt,

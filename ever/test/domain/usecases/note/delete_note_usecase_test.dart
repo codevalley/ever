@@ -34,7 +34,7 @@ void main() {
     const params = DeleteNoteParams(noteId: 'note123');
 
     when(mockRepository.delete(params.noteId))
-        .thenAnswer((_) => Stream.value(null));
+        .thenAnswer((_) => Stream.value(params.noteId));
 
     await useCase.execute(params);
     await Future.delayed(Duration.zero);
@@ -64,26 +64,65 @@ void main() {
     expect((events[1] as OperationFailure).error, equals('Note not found'));
   });
 
-  test('handles network error', () async {
+  test('handles network error with retries', () async {
     const params = DeleteNoteParams(noteId: 'note123');
 
+    // Mock repository to fail with network error 3 times then succeed
+    var attempts = 0;
+    when(mockRepository.delete(params.noteId))
+        .thenAnswer((_) {
+          attempts++;
+          if (attempts <= 3) {
+            return Stream.error('Network error');
+          }
+          return Stream.value(params.noteId);
+        });
+
+    await useCase.execute(params);
+    // Wait for all retries (100ms + 200ms + 300ms)
+    await Future.delayed(Duration(milliseconds: 700));
+
+    // Verify events sequence
+    expect(events.length, equals(6));
+    expect(events[0], isA<OperationInProgress>()); // Initial attempt
+    expect(events[1], isA<OperationInProgress>()); // First retry
+    expect(events[2], isA<OperationInProgress>()); // Second retry
+    expect(events[3], isA<OperationInProgress>()); // Third retry
+    expect(events[4], isA<NoteDeleted>());         // Success on fourth attempt
+    expect(events[5], isA<OperationSuccess>());    // Final success
+
+    // Verify repository was called 4 times
+    verify(mockRepository.delete(params.noteId)).called(4);
+  });
+
+  test('handles network error exhausting retries', () async {
+    const params = DeleteNoteParams(noteId: 'note123');
+
+    // Mock repository to always fail with network error
     when(mockRepository.delete(params.noteId))
         .thenAnswer((_) => Stream.error('Network error'));
 
     await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    // Wait for all retries (100ms + 200ms + 300ms)
+    await Future.delayed(Duration(milliseconds: 700));
 
-    expect(events, hasLength(2));
+    // Verify events sequence
+    expect(events.length, equals(5));
     expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('delete_note'));
-    expect(events[1], isA<OperationFailure>());
-    expect((events[1] as OperationFailure).error, equals('Network error'));
+    expect(events[1], isA<OperationInProgress>());
+    expect(events[2], isA<OperationInProgress>());
+    expect(events[3], isA<OperationInProgress>());
+    expect(events[4], isA<OperationFailure>());
+    expect((events[4] as OperationFailure).error, equals('Network error'));
+
+    // Verify repository was called 4 times (initial + 3 retries)
+    verify(mockRepository.delete(params.noteId)).called(4);
   });
 
   test('prevents concurrent deletions', () async {
     const params = DeleteNoteParams(noteId: 'note123');
 
-    final completer = Completer<void>();
+    final completer = Completer<String>();
     when(mockRepository.delete(params.noteId))
         .thenAnswer((_) => Stream.fromFuture(completer.future));
 
@@ -96,7 +135,7 @@ void main() {
     await Future.delayed(Duration.zero);
 
     // Complete first deletion
-    completer.complete();
+    completer.complete(params.noteId);
     await Future.delayed(Duration.zero);
 
     // Verify only one deletion was attempted
@@ -106,5 +145,17 @@ void main() {
     expect((events[0] as OperationInProgress).operation, equals('delete_note'));
     expect(events[1], isA<NoteDeleted>());
     expect(events[2], isA<OperationSuccess>());
+  });
+
+  test('validates note id', () async {
+    const params = DeleteNoteParams(noteId: '');
+
+    await useCase.execute(params);
+    await Future.delayed(Duration.zero);
+
+    expect(events, hasLength(1));
+    expect(events[0], isA<OperationFailure>());
+    expect((events[0] as OperationFailure).error, equals('Note ID cannot be empty'));
+    verifyNever(mockRepository.delete(any));
   });
 } 
