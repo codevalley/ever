@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:rxdart/rxdart.dart';
 import '../../core/events.dart';
 import '../../events/task_events.dart';
 import '../../repositories/task_repository.dart';
@@ -13,13 +12,11 @@ class ListTasksParams {
   const ListTasksParams({this.filters});
 
   bool validate() {
-    // Add any validation logic if needed
-    return true;
+    return true; // No validation needed for now
   }
 
   String? validateWithMessage() {
-    // Add any validation messages if needed
-    return null;
+    return null; // No validation needed for now
   }
 }
 
@@ -35,67 +32,45 @@ class ListTasksParams {
 ///    - [OperationFailure]: When listing fails after all retries
 class ListTasksUseCase extends BaseUseCase<ListTasksParams> {
   final TaskRepository _repository;
-  final _events = BehaviorSubject<DomainEvent>();
+  final _events = StreamController<DomainEvent>.broadcast();
   bool _isListing = false;
-  static const _maxRetries = 3;
 
   ListTasksUseCase(this._repository);
 
   @override
   Stream<DomainEvent> get events => _events.stream;
 
-  void _addEvent(DomainEvent event) {
-    if (!_events.isClosed) {
-      _events.add(event);
-    }
-  }
-
   @override
-  Future<void> execute(ListTasksParams params) async {
+  void execute(ListTasksParams params) async {
     if (_isListing) {
-      return;
+      throw StateError('Listing already in progress');
     }
-
+    
     _isListing = true;
-    _addEvent(OperationInProgress('list_tasks'));
-
-    final validationError = params.validateWithMessage();
-    if (validationError != null) {
-      _addEvent(OperationFailure('list_tasks', validationError));
-      _isListing = false;
-      return;
-    }
-
-    var retryCount = 0;
-    Exception? lastError;
-
-    while (retryCount <= _maxRetries) {
-      try {
-        await for (final tasks in _repository.list(filters: params.filters)) {
-          _addEvent(TasksRetrieved(tasks));
-          _addEvent(const OperationSuccess('list_tasks'));
-          _isListing = false;
-          return;
-        }
-      } catch (e) {
-        lastError = e is Exception ? e : Exception(e.toString());
-        if (retryCount < _maxRetries) {
-          retryCount++;
-          _addEvent(OperationInProgress('list_tasks'));
-          await Future.delayed(Duration(milliseconds: retryCount * 100));
-          continue;
-        }
-        break;
+    _events.add(OperationInProgress('list_tasks'));
+    
+    try {
+      final validationError = params.validateWithMessage();
+      if (validationError != null) {
+        _events.add(OperationFailure('list_tasks', validationError));
+        return;
       }
-    }
 
-    _addEvent(OperationFailure('list_tasks', lastError.toString()));
-    _isListing = false;
-    throw lastError!;
+      await for (final tasks in _repository.list(filters: params.filters)) {
+        _events.add(TasksRetrieved(tasks));
+      }
+      
+      _events.add(const OperationSuccess('list_tasks'));
+    } catch (e) {
+      _events.add(OperationFailure('list_tasks', e.toString()));
+      rethrow;
+    } finally {
+      _isListing = false;
+    }
   }
 
   @override
-  Future<void> dispose() async {
+  void dispose() async {
     await _events.close();
   }
 } 

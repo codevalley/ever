@@ -6,9 +6,11 @@ import 'package:ever/domain/core/local_cache.dart';
 import 'package:ever/domain/core/retry_config.dart';
 import 'package:ever/domain/datasources/user_ds.dart';
 import 'package:ever/domain/datasources/note_ds.dart';
+import 'package:ever/domain/datasources/task_ds.dart';
 import 'package:ever/domain/presenter/cli_presenter.dart';
 import 'package:ever/domain/repositories/user_repository.dart';
 import 'package:ever/domain/repositories/note_repository.dart';
+import 'package:ever/domain/repositories/task_repository.dart';
 import 'package:ever/domain/usecases/user/get_current_user_usecase.dart';
 import 'package:ever/domain/usecases/user/login_usecase.dart';
 import 'package:ever/domain/usecases/user/refresh_token_usecase.dart';
@@ -19,12 +21,19 @@ import 'package:ever/domain/usecases/note/update_note_usecase.dart';
 import 'package:ever/domain/usecases/note/delete_note_usecase.dart';
 import 'package:ever/domain/usecases/note/list_notes_usecase.dart';
 import 'package:ever/domain/usecases/note/get_note_usecase.dart';
+import 'package:ever/domain/usecases/task/create_task_usecase.dart';
+import 'package:ever/domain/usecases/task/update_task_usecase.dart';
+import 'package:ever/domain/usecases/task/delete_task_usecase.dart';
+import 'package:ever/domain/usecases/task/list_tasks_usecase.dart';
+import 'package:ever/domain/usecases/task/get_task_usecase.dart';
 import 'package:ever/implementations/cache/file_cache.dart';
 import 'package:ever/implementations/datasources/user_ds_impl.dart';
 import 'package:ever/implementations/datasources/note_ds_impl.dart';
+import 'package:ever/implementations/datasources/task_ds_impl.dart';
 import 'package:ever/implementations/http/timeout_client.dart';
 import 'package:ever/implementations/repositories/user_repository_impl.dart';
 import 'package:ever/implementations/repositories/note_repository_impl.dart';
+import 'package:ever/implementations/repositories/task_repository_impl.dart';
 import 'package:ever/ui/cli/app.dart';
 import 'package:get_it/get_it.dart';
 import 'package:http/http.dart' as http;
@@ -150,6 +159,25 @@ Future<void> setupDependencies() async {
     ),
   );
 
+  // Now register task data source with access token from user repository
+  final taskDs = TaskDataSourceImpl(
+    client: client,
+    cache: getIt<LocalCache>(),
+    retryConfig: RetryConfig.defaultConfig,
+    circuitBreakerConfig: CircuitBreakerConfig.defaultConfig,
+    getAccessToken: () => getIt<UserRepository>().currentToken ?? '',
+  );
+  getIt.registerSingleton<TaskDataSource>(taskDs);
+
+  // Register task repository
+  getIt.registerSingleton<TaskRepository>(
+    TaskRepositoryImpl(
+      getIt<TaskDataSource>(),
+      retryConfig: RetryConfig.defaultConfig,
+      circuitBreaker: CircuitBreaker(),
+    ),
+  );
+
   // User Use Cases
   getIt.registerFactory<RegisterUseCase>(
     () => RegisterUseCase(getIt<UserRepository>()),
@@ -192,6 +220,27 @@ Future<void> setupDependencies() async {
     () => GetNoteUseCase(getIt<NoteRepository>()),
   );
 
+  // Task Use Cases
+  getIt.registerFactory<CreateTaskUseCase>(
+    () => CreateTaskUseCase(getIt<TaskRepository>()),
+  );
+
+  getIt.registerFactory<UpdateTaskUseCase>(
+    () => UpdateTaskUseCase(getIt<TaskRepository>()),
+  );
+
+  getIt.registerFactory<DeleteTaskUseCase>(
+    () => DeleteTaskUseCase(getIt<TaskRepository>()),
+  );
+
+  getIt.registerFactory<ListTasksUseCase>(
+    () => ListTasksUseCase(getIt<TaskRepository>()),
+  );
+
+  getIt.registerFactory<GetTaskUseCase>(
+    () => GetTaskUseCase(getIt<TaskRepository>()),
+  );
+
   // Presenter
   getIt.registerSingleton<CliPresenter>(
     CliPresenter(
@@ -205,6 +254,11 @@ Future<void> setupDependencies() async {
       deleteNoteUseCase: getIt<DeleteNoteUseCase>(),
       listNotesUseCase: getIt<ListNotesUseCase>(),
       getNoteUseCase: getIt<GetNoteUseCase>(),
+      createTaskUseCase: getIt<CreateTaskUseCase>(),
+      updateTaskUseCase: getIt<UpdateTaskUseCase>(),
+      deleteTaskUseCase: getIt<DeleteTaskUseCase>(),
+      listTasksUseCase: getIt<ListTasksUseCase>(),
+      getTaskUseCase: getIt<GetTaskUseCase>(),
     ),
   );
 

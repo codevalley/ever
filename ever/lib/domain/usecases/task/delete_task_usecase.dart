@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:rxdart/rxdart.dart';
 import '../../core/events.dart';
 import '../../events/task_events.dart';
 import '../../repositories/task_repository.dart';
@@ -27,67 +26,43 @@ class DeleteTaskParams {
 /// Use case for deleting a task
 class DeleteTaskUseCase extends BaseUseCase<DeleteTaskParams> {
   final TaskRepository _repository;
-  final _events = BehaviorSubject<DomainEvent>();
+  final _events = StreamController<DomainEvent>.broadcast();
   bool _isDeleting = false;
-  static const _maxRetries = 3;
 
   DeleteTaskUseCase(this._repository);
 
   @override
   Stream<DomainEvent> get events => _events.stream;
 
-  void _addEvent(DomainEvent event) {
-    if (!_events.isClosed) {
-      _events.add(event);
-    }
-  }
-
   @override
-  Future<void> execute(DeleteTaskParams params) async {
+  void execute(DeleteTaskParams params) async {
     if (_isDeleting) {
-      return;
+      throw StateError('Deletion already in progress');
     }
-
+    
     _isDeleting = true;
-    _addEvent(OperationInProgress('delete_task'));
-
-    final validationError = params.validateWithMessage();
-    if (validationError != null) {
-      _addEvent(OperationFailure('delete_task', validationError));
-      _isDeleting = false;
-      return;
-    }
-
-    var retryCount = 0;
-    Exception? lastError;
-
-    while (retryCount <= _maxRetries) {
-      try {
-        await for (final _ in _repository.delete(params.taskId)) {
-          _addEvent(TaskDeleted(params.taskId));
-          _addEvent(const OperationSuccess('delete_task'));
-          _isDeleting = false;
-          return;
-        }
-      } catch (e) {
-        lastError = e is Exception ? e : Exception(e.toString());
-        if (retryCount < _maxRetries) {
-          retryCount++;
-          _addEvent(OperationInProgress('delete_task'));
-          await Future.delayed(Duration(milliseconds: retryCount * 100));
-          continue;
-        }
-        break;
+    _events.add(OperationInProgress('delete_task'));
+    
+    try {
+      final validationError = params.validateWithMessage();
+      if (validationError != null) {
+        _events.add(OperationFailure('delete_task', validationError));
+        return;
       }
-    }
 
-    _addEvent(OperationFailure('delete_task', lastError.toString()));
-    _isDeleting = false;
-    throw lastError!;
+      await _repository.delete(params.taskId).drain<void>();
+      _events.add(TaskDeleted(params.taskId));
+      _events.add(const OperationSuccess('delete_task'));
+    } catch (e) {
+      _events.add(OperationFailure('delete_task', e.toString()));
+      rethrow;
+    } finally {
+      _isDeleting = false;
+    }
   }
 
   @override
-  Future<void> dispose() async {
+  void dispose() async {
     await _events.close();
   }
 } 

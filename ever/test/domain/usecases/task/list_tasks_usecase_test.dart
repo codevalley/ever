@@ -30,8 +30,13 @@ void main() {
   tearDown(() async {
     await subscription?.cancel();
     subscription = null;
-    await useCase.dispose();
+    useCase.dispose();
   });
+
+  Future<void> executeAndWait(ListTasksParams params) async {
+    useCase.execute(params);
+    await Future.delayed(Duration.zero);
+  }
 
   test('successful tasks listing', () async {
     final params = ListTasksParams(filters: {'status': 'todo'});
@@ -62,8 +67,7 @@ void main() {
     when(mockRepository.list(filters: anyNamed('filters')))
         .thenAnswer((_) => Stream.value(testTasks));
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
@@ -80,8 +84,7 @@ void main() {
     when(mockRepository.list(filters: anyNamed('filters')))
         .thenAnswer((_) => Stream.value([]));
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
@@ -102,7 +105,8 @@ void main() {
 
     // Execute and expect error
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
       fail('Should throw an exception');
     } catch (e) {
       expect(e, equals(error));
@@ -133,12 +137,17 @@ void main() {
         .thenAnswer((_) => Stream.fromFuture(completer.future));
 
     // First listing
-    unawaited(useCase.execute(params));
+    useCase.execute(params);
     await Future.delayed(Duration.zero);
 
     // Try second listing while first is in progress
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    try {
+      useCase.execute(params);
+      fail('Should throw a StateError');
+    } catch (e) {
+      expect(e, isA<StateError>());
+      expect(e.toString(), contains('Listing already in progress'));
+    }
 
     // Complete first listing
     final testTasks = [

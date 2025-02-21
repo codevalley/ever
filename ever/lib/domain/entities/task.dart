@@ -25,6 +25,34 @@ class Task {
     this.updatedAt,
     this.processingStatus = ProcessingStatus.pending,
   });
+
+  Task copyWith({
+    String? id,
+    String? content,
+    TaskStatus? status,
+    TaskPriority? priority,
+    DateTime? dueDate,
+    List<String>? tags,
+    String? parentId,
+    String? topicId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    ProcessingStatus? processingStatus,
+  }) {
+    return Task(
+      id: id ?? this.id,
+      content: content ?? this.content,
+      status: status ?? this.status,
+      priority: priority ?? this.priority,
+      dueDate: dueDate ?? this.dueDate,
+      tags: tags ?? this.tags,
+      parentId: parentId ?? this.parentId,
+      topicId: topicId ?? this.topicId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      processingStatus: processingStatus ?? this.processingStatus,
+    );
+  }
 }
 
 /// Status of a task

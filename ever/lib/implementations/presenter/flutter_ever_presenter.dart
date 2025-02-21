@@ -6,6 +6,7 @@ import '../../domain/core/events.dart';
 import '../../domain/events/note_events.dart';
 import '../../domain/events/user_events.dart';
 import '../../domain/entities/note.dart';
+import '../../domain/entities/task.dart';
 import '../../domain/presenter/ever_presenter.dart';
 import '../../domain/usecases/note/create_note_usecase.dart';
 import '../../domain/usecases/note/update_note_usecase.dart';
@@ -17,6 +18,11 @@ import '../../domain/usecases/user/login_usecase.dart';
 import '../../domain/usecases/user/refresh_token_usecase.dart';
 import '../../domain/usecases/user/register_usecase.dart';
 import '../../domain/usecases/user/sign_out_usecase.dart';
+import '../../domain/usecases/task/create_task_usecase.dart';
+import '../../domain/usecases/task/update_task_usecase.dart';
+import '../../domain/usecases/task/delete_task_usecase.dart';
+import '../../domain/usecases/task/list_tasks_usecase.dart';
+import '../../domain/usecases/task/get_task_usecase.dart';
 
 /// Flutter implementation of the Ever presenter
 class FlutterEverPresenter implements EverPresenter {
@@ -31,6 +37,12 @@ class FlutterEverPresenter implements EverPresenter {
   final DeleteNoteUseCase _deleteNoteUseCase;
   final GetNoteUseCase _getNoteUseCase;
   final ListNotesUseCase _listNotesUseCase;
+
+  final CreateTaskUseCase _createTaskUseCase;
+  final UpdateTaskUseCase _updateTaskUseCase;
+  final DeleteTaskUseCase _deleteTaskUseCase;
+  final ListTasksUseCase _listTasksUseCase;
+  final GetTaskUseCase _getTaskUseCase;
 
   final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
   final _events = BehaviorSubject<DomainEvent>();
@@ -47,6 +59,11 @@ class FlutterEverPresenter implements EverPresenter {
     required DeleteNoteUseCase deleteNoteUseCase,
     required GetNoteUseCase getNoteUseCase,
     required ListNotesUseCase listNotesUseCase,
+    required CreateTaskUseCase createTaskUseCase,
+    required UpdateTaskUseCase updateTaskUseCase,
+    required DeleteTaskUseCase deleteTaskUseCase,
+    required ListTasksUseCase listTasksUseCase,
+    required GetTaskUseCase getTaskUseCase,
   })  : _registerUseCase = registerUseCase,
         _loginUseCase = loginUseCase,
         _signOutUseCase = signOutUseCase,
@@ -56,7 +73,12 @@ class FlutterEverPresenter implements EverPresenter {
         _updateNoteUseCase = updateNoteUseCase,
         _deleteNoteUseCase = deleteNoteUseCase,
         _getNoteUseCase = getNoteUseCase,
-        _listNotesUseCase = listNotesUseCase {
+        _listNotesUseCase = listNotesUseCase,
+        _createTaskUseCase = createTaskUseCase,
+        _updateTaskUseCase = updateTaskUseCase,
+        _deleteTaskUseCase = deleteTaskUseCase,
+        _listTasksUseCase = listTasksUseCase,
+        _getTaskUseCase = getTaskUseCase {
     
     // Subscribe to all use case events and merge them into a single stream
     _subscriptions.addAll([
@@ -70,6 +92,11 @@ class FlutterEverPresenter implements EverPresenter {
       _deleteNoteUseCase.events.listen(_events.add),
       _getNoteUseCase.events.listen(_events.add),
       _listNotesUseCase.events.listen(_events.add),
+      _createTaskUseCase.events.listen(_events.add),
+      _updateTaskUseCase.events.listen(_events.add),
+      _deleteTaskUseCase.events.listen(_events.add),
+      _listTasksUseCase.events.listen(_events.add),
+      _getTaskUseCase.events.listen(_events.add),
     ]);
 
     // Subscribe to the merged events stream to update state
@@ -296,7 +323,6 @@ class FlutterEverPresenter implements EverPresenter {
     
     try {
       await _createNoteUseCase.execute(CreateNoteParams(
-
         content: content,
         userId: _stateController.value.currentUser!.id,
       ));
@@ -321,7 +347,6 @@ class FlutterEverPresenter implements EverPresenter {
     try {
       await _updateNoteUseCase.execute(UpdateNoteParams(
         noteId: noteId,
-
         content: content,
       ));
     } catch (e) {
@@ -392,33 +417,81 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   @override
-  Future<void> createTask(String title, DateTime dueDate) async {
-    // TODO: Implement when task usecases are ready
-    throw UnimplementedError();
+  Future<void> createTask({required String title, String? description}) async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to create tasks');
+    }
+    
+    _createTaskUseCase.execute(CreateTaskParams(
+      content: title,
+      status: TaskStatus.todo,
+      priority: TaskPriority.medium,
+      tags: description != null ? [description] : [],
+    ));
   }
 
   @override
-  Future<void> updateTask(String taskId, {String? title, DateTime? dueDate, bool? completed}) async {
-    // TODO: Implement when task usecases are ready
-    throw UnimplementedError();
+  Future<void> updateTask(String taskId, {String? title, String? description, String? status}) async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to update tasks');
+    }
+    
+    _updateTaskUseCase.execute(UpdateTaskParams(
+      taskId: taskId,
+      content: title,
+      status: status != null ? _parseTaskStatus(status) : null,
+    ));
+  }
+
+  TaskStatus _parseTaskStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'todo':
+        return TaskStatus.todo;
+      case 'in_progress':
+        return TaskStatus.inProgress;
+      case 'done':
+        return TaskStatus.done;
+      default:
+        throw ArgumentError('Invalid task status: $status');
+    }
   }
 
   @override
   Future<void> deleteTask(String taskId) async {
-    // TODO: Implement when task usecases are ready
-    throw UnimplementedError();
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to delete tasks');
+    }
+    
+    _deleteTaskUseCase.execute(DeleteTaskParams(taskId: taskId));
   }
 
   @override
-  Future<void> getTasks() async {
-    // TODO: Implement when task usecases are ready
-    throw UnimplementedError();
+  Future<void> viewTask(String taskId) async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to view tasks');
+    }
+    
+    _getTaskUseCase.execute(GetTaskParams(id: taskId));
+  }
+
+  @override
+  Future<void> listTasks() async {
+    if (!_stateController.value.isAuthenticated) {
+      throw Exception('Must be authenticated to list tasks');
+    }
+    
+    _listTasksUseCase.execute(ListTasksParams());
   }
 
   @override
   Future<void> refresh() async {
-    await getCurrentUser();
-    // TODO: Add refresh for notes and tasks when implemented
+    try {
+      await getCurrentUser();
+      await listNotes();
+      await listTasks();
+    } catch (e) {
+      // Ignore errors during refresh
+    }
   }
 
   @override

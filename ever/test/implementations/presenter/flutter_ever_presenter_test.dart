@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:ever/domain/core/events.dart';
 import 'package:ever/domain/events/user_events.dart';
 import 'package:ever/domain/entities/user.dart';
-import 'package:ever/domain/entities/note.dart';
+import 'package:ever/domain/entities/note.dart' as note_entity;
+import 'package:ever/domain/entities/task.dart';
 import 'package:ever/domain/presenter/ever_presenter.dart';
 import 'package:ever/domain/usecases/note/create_note_usecase.dart';
 import 'package:ever/domain/usecases/note/update_note_usecase.dart';
@@ -15,6 +16,11 @@ import 'package:ever/domain/usecases/user/login_usecase.dart';
 import 'package:ever/domain/usecases/user/refresh_token_usecase.dart';
 import 'package:ever/domain/usecases/user/register_usecase.dart';
 import 'package:ever/domain/usecases/user/sign_out_usecase.dart';
+import 'package:ever/domain/usecases/task/create_task_usecase.dart';
+import 'package:ever/domain/usecases/task/update_task_usecase.dart';
+import 'package:ever/domain/usecases/task/delete_task_usecase.dart';
+import 'package:ever/domain/usecases/task/list_tasks_usecase.dart';
+import 'package:ever/domain/usecases/task/get_task_usecase.dart';
 import 'package:ever/implementations/presenter/flutter_ever_presenter.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
@@ -33,6 +39,11 @@ import 'flutter_ever_presenter_test.mocks.dart';
   DeleteNoteUseCase,
   ListNotesUseCase,
   GetNoteUseCase,
+  CreateTaskUseCase,
+  UpdateTaskUseCase,
+  DeleteTaskUseCase,
+  ListTasksUseCase,
+  GetTaskUseCase,
 ])
 void main() {
   late MockRegisterUseCase mockRegisterUseCase;
@@ -45,6 +56,11 @@ void main() {
   late MockDeleteNoteUseCase mockDeleteNoteUseCase;
   late MockListNotesUseCase mockListNotesUseCase;
   late MockGetNoteUseCase mockGetNoteUseCase;
+  late MockCreateTaskUseCase mockCreateTaskUseCase;
+  late MockUpdateTaskUseCase mockUpdateTaskUseCase;
+  late MockDeleteTaskUseCase mockDeleteTaskUseCase;
+  late MockListTasksUseCase mockListTasksUseCase;
+  late MockGetTaskUseCase mockGetTaskUseCase;
   late FlutterEverPresenter presenter;
   late List<EverState> states;
   late StreamController<DomainEvent> registerEventController;
@@ -57,6 +73,11 @@ void main() {
   late StreamController<DomainEvent> deleteNoteEventController;
   late StreamController<DomainEvent> listNotesEventController;
   late StreamController<DomainEvent> getNoteEventController;
+  late StreamController<DomainEvent> createTaskEventController;
+  late StreamController<DomainEvent> updateTaskEventController;
+  late StreamController<DomainEvent> deleteTaskEventController;
+  late StreamController<DomainEvent> listTasksEventController;
+  late StreamController<DomainEvent> getTaskEventController;
   late StreamSubscription<EverState>? stateSubscription;
 
   setUp(() async {
@@ -70,6 +91,11 @@ void main() {
     mockDeleteNoteUseCase = MockDeleteNoteUseCase();
     mockListNotesUseCase = MockListNotesUseCase();
     mockGetNoteUseCase = MockGetNoteUseCase();
+    mockCreateTaskUseCase = MockCreateTaskUseCase();
+    mockUpdateTaskUseCase = MockUpdateTaskUseCase();
+    mockDeleteTaskUseCase = MockDeleteTaskUseCase();
+    mockListTasksUseCase = MockListTasksUseCase();
+    mockGetTaskUseCase = MockGetTaskUseCase();
 
     registerEventController = StreamController<DomainEvent>();
     loginEventController = StreamController<DomainEvent>();
@@ -81,6 +107,11 @@ void main() {
     deleteNoteEventController = StreamController<DomainEvent>();
     listNotesEventController = StreamController<DomainEvent>();
     getNoteEventController = StreamController<DomainEvent>();
+    createTaskEventController = StreamController<DomainEvent>();
+    updateTaskEventController = StreamController<DomainEvent>();
+    deleteTaskEventController = StreamController<DomainEvent>();
+    listTasksEventController = StreamController<DomainEvent>();
+    getTaskEventController = StreamController<DomainEvent>();
 
     when(mockRegisterUseCase.events).thenAnswer((_) => registerEventController.stream);
     when(mockLoginUseCase.events).thenAnswer((_) => loginEventController.stream);
@@ -92,6 +123,11 @@ void main() {
     when(mockDeleteNoteUseCase.events).thenAnswer((_) => deleteNoteEventController.stream);
     when(mockListNotesUseCase.events).thenAnswer((_) => listNotesEventController.stream);
     when(mockGetNoteUseCase.events).thenAnswer((_) => getNoteEventController.stream);
+    when(mockCreateTaskUseCase.events).thenAnswer((_) => createTaskEventController.stream);
+    when(mockUpdateTaskUseCase.events).thenAnswer((_) => updateTaskEventController.stream);
+    when(mockDeleteTaskUseCase.events).thenAnswer((_) => deleteTaskEventController.stream);
+    when(mockListTasksUseCase.events).thenAnswer((_) => listTasksEventController.stream);
+    when(mockGetTaskUseCase.events).thenAnswer((_) => getTaskEventController.stream);
 
     presenter = FlutterEverPresenter(
       registerUseCase: mockRegisterUseCase,
@@ -104,6 +140,11 @@ void main() {
       deleteNoteUseCase: mockDeleteNoteUseCase,
       listNotesUseCase: mockListNotesUseCase,
       getNoteUseCase: mockGetNoteUseCase,
+      createTaskUseCase: mockCreateTaskUseCase,
+      updateTaskUseCase: mockUpdateTaskUseCase,
+      deleteTaskUseCase: mockDeleteTaskUseCase,
+      listTasksUseCase: mockListTasksUseCase,
+      getTaskUseCase: mockGetTaskUseCase,
     );
 
     states = [];
@@ -128,6 +169,11 @@ void main() {
       deleteNoteEventController,
       listNotesEventController,
       getNoteEventController,
+      createTaskEventController,
+      updateTaskEventController,
+      deleteTaskEventController,
+      listTasksEventController,
+      getTaskEventController,
     ];
 
     for (final controller in controllers) {
@@ -424,7 +470,7 @@ void main() {
     test('getNote executes get note use case with correct parameters', () async {
       // Arrange
       final noteId = '123';
-      final noteController = StreamController<Note>();
+      final noteController = StreamController<note_entity.Note>();
       when(mockGetNoteUseCase.note).thenAnswer((_) => noteController.stream);
       
       // Act
@@ -437,12 +483,12 @@ void main() {
       ))).called(1);
 
       // Complete the stream to avoid timeout
-      final testNote = Note(
+      final testNote = note_entity.Note(
         id: noteId,
         content: 'test',
         userId: testUser.id,
         createdAt: DateTime.now(),
-        processingStatus: ProcessingStatus.pending,
+        processingStatus: note_entity.ProcessingStatus.pending,
       );
       
       noteController.add(testNote);
@@ -460,7 +506,7 @@ void main() {
       // Arrange
       final noteId = '123';
       final error = 'Note not found';
-      final noteController = StreamController<Note>();
+      final noteController = StreamController<note_entity.Note>();
       when(mockGetNoteUseCase.note).thenAnswer((_) => noteController.stream);
       
       // Act
@@ -485,6 +531,115 @@ void main() {
       
       // Cleanup
       await noteController.close();
+    });
+  });
+
+  group('task operations', () {
+    late User testUser;
+
+    setUp(() async {
+      // Authenticate user first
+      testUser = User(
+        id: '1',
+        username: 'testuser',
+        createdAt: DateTime.now(),
+      );
+      getCurrentUserEventController.add(CurrentUserRetrieved(testUser));
+      await pumpEventQueue();
+    });
+
+    test('createTask executes create task use case with correct parameters', () async {
+      // Arrange
+      final title = 'Test Task';
+      final description = 'Test Description';
+
+      // Act
+      await presenter.createTask(title: title, description: description);
+      await pumpEventQueue();
+
+      // Assert
+      verify(mockCreateTaskUseCase.execute(argThat(
+        isA<CreateTaskParams>()
+          .having((p) => p.content, 'content', title)
+          .having((p) => p.tags, 'tags', [description])
+          .having((p) => p.status, 'status', TaskStatus.todo)
+          .having((p) => p.priority, 'priority', TaskPriority.medium),
+      ))).called(1);
+    });
+
+    test('updateTask executes update task use case with correct parameters', () async {
+      // Arrange
+      final taskId = '123';
+      final title = 'Updated Task';
+      final status = 'done';
+
+      // Act
+      await presenter.updateTask(taskId, title: title, status: status);
+      await pumpEventQueue();
+
+      // Assert
+      verify(mockUpdateTaskUseCase.execute(argThat(
+        isA<UpdateTaskParams>()
+          .having((p) => p.taskId, 'taskId', taskId)
+          .having((p) => p.content, 'content', title)
+          .having((p) => p.status, 'status', TaskStatus.done),
+      ))).called(1);
+    });
+
+    test('deleteTask executes delete task use case with correct parameters', () async {
+      // Arrange
+      final taskId = '123';
+
+      // Act
+      await presenter.deleteTask(taskId);
+      await pumpEventQueue();
+
+      // Assert
+      verify(mockDeleteTaskUseCase.execute(argThat(
+        isA<DeleteTaskParams>().having((p) => p.taskId, 'taskId', taskId),
+      ))).called(1);
+    });
+
+    test('viewTask executes get task use case with correct parameters', () async {
+      // Arrange
+      final taskId = '123';
+
+      // Act
+      await presenter.viewTask(taskId);
+      await pumpEventQueue();
+
+      // Assert
+      verify(mockGetTaskUseCase.execute(argThat(
+        isA<GetTaskParams>().having((p) => p.id, 'id', taskId),
+      ))).called(1);
+    });
+
+    test('listTasks executes list tasks use case', () async {
+      // Act
+      await presenter.listTasks();
+      await pumpEventQueue();
+
+      // Assert
+      verify(mockListTasksUseCase.execute(any)).called(1);
+    });
+
+    test('handles task operation errors correctly', () async {
+      // Arrange
+      final error = 'Failed to create task';
+
+      // Act
+      await presenter.createTask(title: 'Test Task');
+      createTaskEventController.add(OperationInProgress('create_task'));
+      await pumpEventQueue();
+      createTaskEventController.add(OperationFailure('create_task', error));
+      await pumpEventQueue();
+
+      // Assert
+      expect(states.length, 4); // Initial + Auth + Loading + Error
+      expect(states[0], isEverState());
+      expect(states[1], isEverState(isAuthenticated: true, currentUser: testUser));
+      expect(states[2], isEverState(isAuthenticated: true, currentUser: testUser, isLoading: true));
+      expect(states[3], isEverState(isAuthenticated: true, currentUser: testUser, isLoading: false, error: error));
     });
   });
 } 

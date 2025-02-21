@@ -30,8 +30,13 @@ void main() {
   tearDown(() async {
     await subscription?.cancel();
     subscription = null;
-    await useCase.dispose();
+    useCase.dispose();
   });
+
+  Future<void> executeAndWait(GetTaskParams params) async {
+    useCase.execute(params);
+    await Future.delayed(Duration.zero);
+  }
 
   test('successful task retrieval', () async {
     const params = GetTaskParams(id: 'task123');
@@ -47,8 +52,7 @@ void main() {
     when(mockRepository.read(params.id))
         .thenAnswer((_) => Stream.value(testTask));
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
@@ -67,7 +71,8 @@ void main() {
         .thenAnswer((_) => Stream.error(error));
 
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
       fail('Should throw an exception');
     } catch (e) {
       expect(e.toString(), equals(error.toString()));
@@ -113,7 +118,7 @@ void main() {
           return Stream.value(testTask);
         });
 
-    await useCase.execute(params);
+    useCase.execute(params);
     // Wait for all retries (100ms + 200ms + 300ms)
     await Future.delayed(Duration(milliseconds: 700));
 
@@ -139,7 +144,8 @@ void main() {
         .thenAnswer((_) => Stream.error(error));
 
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
       fail('Should throw an exception');
     } catch (e) {
       expect(e.toString(), equals(error.toString()));
@@ -166,8 +172,7 @@ void main() {
   test('validates task id', () async {
     const params = GetTaskParams(id: '');
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());

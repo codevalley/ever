@@ -30,13 +30,13 @@ class CreateTaskParams {
 
   String? validateWithMessage() {
     if (content.isEmpty) {
-      return 'Content cannot be empty';
+      return 'Task content cannot be empty';
     }
     return null;
   }
 }
 
-/// Use case for creating a new task
+/// Use case for creating a task
 class CreateTaskUseCase extends BaseUseCase<CreateTaskParams> {
   final TaskRepository _repository;
   final _events = StreamController<DomainEvent>.broadcast();
@@ -48,7 +48,7 @@ class CreateTaskUseCase extends BaseUseCase<CreateTaskParams> {
   Stream<DomainEvent> get events => _events.stream;
 
   @override
-  Future<void> execute(CreateTaskParams params) async {
+  void execute(CreateTaskParams params) async {
     if (_isCreating) {
       throw StateError('Creation already in progress');
     }
@@ -89,7 +89,7 @@ class CreateTaskUseCase extends BaseUseCase<CreateTaskParams> {
   }
 
   @override
-  Future<void> dispose() async {
+  void dispose() async {
     await _events.close();
   }
 } 

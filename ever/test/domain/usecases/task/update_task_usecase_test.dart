@@ -28,8 +28,13 @@ void main() {
   tearDown(() async {
     await subscription?.cancel();
     subscription = null;
-    await useCase.dispose();
+    useCase.dispose();
   });
+
+  Future<void> executeAndWait(UpdateTaskParams params) async {
+    useCase.execute(params);
+    await Future.delayed(Duration.zero);
+  }
 
   test('validates empty task id', () async {
     final params = UpdateTaskParams(
@@ -37,8 +42,7 @@ void main() {
       content: 'Updated Content',
     );
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
@@ -54,8 +58,7 @@ void main() {
       content: '',
     );
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
@@ -102,8 +105,7 @@ void main() {
     when(mockRepository.update(any))
         .thenAnswer((_) => Stream.value(updatedTask));
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
@@ -125,7 +127,8 @@ void main() {
         .thenAnswer((_) => Stream.error(error));
 
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
       fail('Should throw an exception');
     } catch (e) {
       expect(e.toString(), equals(error.toString()));
@@ -191,7 +194,7 @@ void main() {
           return Stream.value(updatedTask);
         });
 
-    await useCase.execute(params);
+    useCase.execute(params);
     // Wait for all retries (100ms + 200ms + 300ms)
     await Future.delayed(Duration(milliseconds: 700));
 
@@ -235,7 +238,9 @@ void main() {
 
     // Execute and wait for completion or failure
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
+      fail('Should throw an exception');
     } catch (e) {
       expect(e, equals(error));
     }
@@ -283,12 +288,17 @@ void main() {
         .thenAnswer((_) => Stream.fromFuture(updateCompleter.future));
 
     // First update
-    unawaited(useCase.execute(params));
+    useCase.execute(params);
     await Future.delayed(Duration.zero);
 
     // Try second update while first is in progress
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    try {
+      useCase.execute(params);
+      fail('Should throw a StateError');
+    } catch (e) {
+      expect(e, isA<StateError>());
+      expect(e.toString(), contains('Update already in progress'));
+    }
 
     // Complete first update
     readCompleter.complete(existingTask);

@@ -60,8 +60,13 @@ void main() {
   tearDown(() async {
     await subscription?.cancel();
     subscription = null;
-    await useCase.dispose();
+    useCase.dispose();
   });
+
+  Future<void> executeAndWait(CreateTaskParams params) async {
+    useCase.execute(params);
+    await Future.delayed(Duration.zero);
+  }
 
   test('successful task creation', () async {
     final params = CreateTaskParams(
@@ -83,8 +88,7 @@ void main() {
       (_) => Stream.value(createdTask),
     );
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
@@ -109,13 +113,12 @@ void main() {
     );
 
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
       fail('Should throw an exception');
     } catch (e) {
       expect(e, equals(error));
     }
-
-    await Future.delayed(Duration.zero);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
@@ -138,12 +141,12 @@ void main() {
     );
 
     // First creation
-    unawaited(useCase.execute(params));
+    useCase.execute(params);
     await Future.delayed(Duration.zero);
 
     // Try second creation while first is in progress
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
       fail('Should throw a StateError');
     } catch (e) {
       expect(e, isA<StateError>());
@@ -177,8 +180,7 @@ void main() {
       priority: TaskPriority.medium,
     );
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
@@ -194,8 +196,7 @@ void main() {
       priority: TaskPriority.medium,
     );
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
@@ -211,8 +212,7 @@ void main() {
       priority: null,
     );
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());

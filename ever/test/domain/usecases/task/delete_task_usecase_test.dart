@@ -27,8 +27,13 @@ void main() {
   tearDown(() async {
     await subscription?.cancel();
     subscription = null;
-    await useCase.dispose();
+    useCase.dispose();
   });
+
+  Future<void> executeAndWait(DeleteTaskParams params) async {
+    useCase.execute(params);
+    await Future.delayed(Duration.zero);
+  }
 
   test('successful task deletion', () async {
     const params = DeleteTaskParams(taskId: 'task123');
@@ -36,8 +41,7 @@ void main() {
     when(mockRepository.delete(params.taskId))
         .thenAnswer((_) => Stream.value(null));
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
@@ -56,7 +60,8 @@ void main() {
         .thenAnswer((_) => Stream.error(error));
 
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
       fail('Should throw an exception');
     } catch (e) {
       expect(e.toString(), equals(error.toString()));
@@ -94,7 +99,7 @@ void main() {
           return Stream.value(null);
         });
 
-    await useCase.execute(params);
+    useCase.execute(params);
     // Wait for all retries (100ms + 200ms + 300ms)
     await Future.delayed(Duration(milliseconds: 700));
 
@@ -120,7 +125,8 @@ void main() {
         .thenAnswer((_) => Stream.error(error));
 
     try {
-      await useCase.execute(params);
+      useCase.execute(params);
+      await Future.delayed(Duration.zero);
       fail('Should throw an exception');
     } catch (e) {
       expect(e.toString(), equals(error.toString()));
@@ -152,12 +158,17 @@ void main() {
         .thenAnswer((_) => Stream.fromFuture(completer.future));
 
     // First deletion
-    unawaited(useCase.execute(params));
+    useCase.execute(params);
     await Future.delayed(Duration.zero);
 
     // Try second deletion while first is in progress
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    try {
+      useCase.execute(params);
+      fail('Should throw a StateError');
+    } catch (e) {
+      expect(e, isA<StateError>());
+      expect(e.toString(), contains('Deletion already in progress'));
+    }
 
     // Complete first deletion
     completer.complete();
@@ -175,8 +186,7 @@ void main() {
   test('validates task id', () async {
     const params = DeleteTaskParams(taskId: '');
 
-    await useCase.execute(params);
-    await Future.delayed(Duration.zero);
+    await executeAndWait(params);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
