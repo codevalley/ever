@@ -91,7 +91,9 @@ void main() {
     });
 
     test('handles data source initialization', () async {
-      when(mockDataSource.initialize()).thenAnswer((_) async {});
+      when(mockDataSource.initialize()).thenAnswer((_) async {
+        return null;
+      });
       await repository.initialize();
       verify(mockDataSource.initialize()).called(1);
     });
