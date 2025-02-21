@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:ever/core/logging.dart';
 import 'package:ever/domain/core/events.dart';
 import 'package:ever/domain/events/note_events.dart';
 import 'package:ever/domain/entities/note.dart';
@@ -102,7 +103,7 @@ void main() {
     await Future.delayed(Duration(milliseconds: 700));
 
     // Print events for debugging
-    print('Events received: ${events.map((e) => e.runtimeType).toList()}');
+    iprint('Events received: ${events.map((e) => e.runtimeType).toList()}');
 
     // Verify the sequence of events
     expect(events.length, equals(5), reason: 'Expected: Initial + 3 retries + Final failure');

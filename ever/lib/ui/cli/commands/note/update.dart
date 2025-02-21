@@ -45,7 +45,7 @@ class UpdateNoteCommand extends EverCommand {
     final isInteractive = argResults?['interactive'] as bool? ?? false;
     
     if (isInteractive) {
-      final note = await presenter.getNote(id);
+      final note = await presenter.getNote(id).first;
       
       stdout.write('Current content:\n${note.content}\n');
       stdout.write('New content (press Ctrl+D when done, empty line to keep current):\n');

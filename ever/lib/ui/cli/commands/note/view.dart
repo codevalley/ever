@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../../../domain/entities/note.dart';
 import '../../formatters/note.dart';
 import '../base.dart';
 
@@ -33,14 +34,53 @@ class ViewNoteCommand extends EverCommand {
     }
 
     try {
-      final note = await presenter.getNote(id);
+      final completer = Completer<Note>();
+      var hasError = false;
+      var subscription = presenter.getNote(id).listen(
+        (note) {
+          if (!completer.isCompleted) {
+            completer.complete(note);
+          }
+        },
+        onError: (e) {
+          if (!completer.isCompleted && !hasError) {
+            hasError = true;
+            completer.completeError(e);
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted && !hasError) {
+            completer.completeError(Exception('Note not found'));
+          }
+        },
+        cancelOnError: true,
+      );
 
-      final formatter = NoteFormatter();
-      logger.info(formatter.formatNote(note));
-      return ExitCode.success.code;
+      try {
+        final note = await completer.future.timeout(
+          Duration(seconds: 10),
+          onTimeout: () {
+            subscription.cancel();
+            throw TimeoutException('Operation timed out');
+          },
+        );
+
+        final formatter = NoteFormatter();
+        logger.info(formatter.formatNote(note));
+        return ExitCode.success.code;
+      } catch (e) {
+        await subscription.cancel();
+        rethrow;
+      }
     } on FormatException {
       logger.err('Invalid note ID format');
       return ExitCode.usage.code;
+    } on TimeoutException catch (e) {
+      logger.err(e.toString());
+      return ExitCode.software.code;
+    } catch (e) {
+      logger.err(e.toString());
+      return ExitCode.software.code;
     }
   }
 }

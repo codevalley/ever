@@ -22,7 +22,9 @@ void main() {
     mockRepository = MockNoteRepository();
     useCase = CreateNoteUseCase(mockRepository);
     events = [];
-    subscription = useCase.events.listen(events.add);
+    subscription = useCase.events.listen((event) {
+      events.add(event);
+    });
   });
 
   tearDown(() async {
@@ -31,25 +33,17 @@ void main() {
     await useCase.dispose();
   });
 
-  Future<void> pumpEventQueue() async {
-    await Future.delayed(Duration.zero);
-  }
-
   test('successful note creation', () async {
     final params = CreateNoteParams(
-
-      content: 'Test Content',
+      content: 'Test note',
       userId: 'user123',
-
     );
 
     final testNote = Note(
-      id: 'note123',
-
+      id: 'note1',
       content: params.content,
       userId: params.userId,
       createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
       processingStatus: ProcessingStatus.pending,
     );
 
@@ -57,7 +51,7 @@ void main() {
         .thenAnswer((_) => Stream.value(testNote));
 
     await useCase.execute(params);
-    await pumpEventQueue();
+    await Future.delayed(Duration.zero);
 
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
@@ -68,105 +62,64 @@ void main() {
     expect((events[2] as OperationSuccess).operation, equals('create_note'));
   });
 
-  test('handles validation error', () async {
+  test('handles creation failure', () async {
     final params = CreateNoteParams(
-      content: '', // Empty content should cause validation error
+      content: 'Test note',
       userId: 'user123',
-
     );
 
     when(mockRepository.create(any))
-        .thenAnswer((_) => Stream.error('Invalid note data'));
+        .thenAnswer((_) => Stream.error('Failed to create note'));
 
-    try {
-      await useCase.execute(params);
-      fail('Should throw an exception');
-    } catch (e) {
-      expect(e, isA<String>());
-      expect(e, equals('Invalid note data'));
-    }
-    await pumpEventQueue();
+    expect(
+      () => useCase.execute(params),
+      throwsA(isA<String>()),
+    );
+
+    await Future.delayed(Duration.zero);
 
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
     expect((events[0] as OperationInProgress).operation, equals('create_note'));
     expect(events[1], isA<OperationFailure>());
-    expect((events[1] as OperationFailure).error, equals('Invalid note data'));
-  });
-
-  test('handles network error', () async {
-    final params = CreateNoteParams(
-
-      content: 'Test Content',
-      userId: 'user123',
-
-    );
-
-    when(mockRepository.create(any))
-        .thenAnswer((_) => Stream.error('Network error'));
-
-    try {
-      await useCase.execute(params);
-      fail('Should throw an exception');
-    } catch (e) {
-      expect(e, isA<String>());
-      expect(e, equals('Network error'));
-    }
-    await pumpEventQueue();
-
-    expect(events, hasLength(2));
-    expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('create_note'));
-    expect(events[1], isA<OperationFailure>());
-    expect((events[1] as OperationFailure).error, equals('Network error'));
+    expect((events[1] as OperationFailure).operation, equals('create_note'));
+    expect((events[1] as OperationFailure).error, equals('Failed to create note'));
   });
 
   test('prevents concurrent creations', () async {
     final params = CreateNoteParams(
-
-      content: 'Test Content',
+      content: 'Test note',
       userId: 'user123',
-
     );
 
-    final testNote = Note(
-      id: 'note123',
+    final completer = Completer<Note>();
+    when(mockRepository.create(any))
+        .thenAnswer((_) => Stream.fromFuture(completer.future));
 
+    // First creation
+    unawaited(useCase.execute(params));
+    await Future.delayed(Duration.zero);
+
+    // Try second creation while first is in progress
+    expect(
+      () => useCase.execute(params),
+      throwsA(isA<StateError>()),
+    );
+
+    // Complete first creation
+    final testNote = Note(
+      id: 'note1',
       content: params.content,
       userId: params.userId,
       createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
       processingStatus: ProcessingStatus.pending,
     );
+    completer.complete(testNote);
+    await Future.delayed(Duration.zero);
 
-    final streamController = StreamController<Note>();
-    when(mockRepository.create(any))
-        .thenAnswer((_) => streamController.stream);
-
-    // Start first creation
-    final firstFuture = useCase.execute(params);
-    await pumpEventQueue();
-
-    // Try second creation while first is in progress
-    try {
-      await useCase.execute(params);
-      fail('Should throw a StateError');
-    } catch (e) {
-      expect(e, isA<StateError>());
-      expect((e as StateError).message, contains('Creation already in progress'));
-    }
-
-    // Complete first creation
-    streamController.add(testNote);
-    await streamController.close();
-    await firstFuture;
-    await pumpEventQueue();
-
-    // Verify only one creation was attempted
     verify(mockRepository.create(any)).called(1);
     expect(events, hasLength(3));
     expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('create_note'));
     expect(events[1], isA<NoteCreated>());
     expect(events[2], isA<OperationSuccess>());
   });

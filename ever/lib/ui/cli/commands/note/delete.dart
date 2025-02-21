@@ -38,7 +38,7 @@ class DeleteNoteCommand extends EverCommand {
     final force = argResults?['force'] as bool? ?? false;
     
     if (!force) {
-      final note = await presenter.getNote(id);
+      final note = await presenter.getNote(id).first;
       logger.info('About to delete note:');
       logger.info(NoteFormatter().formatNote(note));
       

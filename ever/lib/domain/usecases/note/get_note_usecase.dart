@@ -38,7 +38,7 @@ class GetNoteParams {
 class GetNoteUseCase extends BaseUseCase<GetNoteParams> {
   final NoteRepository _repository;
   final _events = BehaviorSubject<DomainEvent>();
-  final _noteSubject = BehaviorSubject<Note>();
+  final _noteController = StreamController<Note>.broadcast();
   StreamSubscription<Note>? _getNoteSubscription;
   bool _isExecuting = false;
   int _retryCount = 0;
@@ -50,7 +50,7 @@ class GetNoteUseCase extends BaseUseCase<GetNoteParams> {
   Stream<DomainEvent> get events => _events.stream;
 
   /// Stream of the note
-  Stream<Note> get note => _noteSubject.stream;
+  Stream<Note> get note => _noteController.stream;
 
   @override
   Future<void> execute([GetNoteParams? params]) async {
@@ -75,7 +75,7 @@ class GetNoteUseCase extends BaseUseCase<GetNoteParams> {
       _getNoteSubscription = _repository.read(params.id)
         .listen(
           (note) {
-            _noteSubject.add(note);
+            _noteController.add(note);
             _events.add(NoteRetrieved(note));
             _events.add(const OperationSuccess('get_note'));
             _isExecuting = false;
@@ -89,15 +89,18 @@ class GetNoteUseCase extends BaseUseCase<GetNoteParams> {
               _events.add(OperationFailure('get_note', error.toString()));
               _isExecuting = false;
               _retryCount = 0;
+              _noteController.addError(error);
             }
           },
           onDone: () {
             _isExecuting = false;
           },
+          cancelOnError: true,
         );
     } catch (e) {
       _events.add(OperationFailure('get_note', e.toString()));
       _isExecuting = false;
+      _noteController.addError(e);
     }
   }
 
@@ -112,6 +115,6 @@ class GetNoteUseCase extends BaseUseCase<GetNoteParams> {
   Future<void> dispose() async {
     await _getNoteSubscription?.cancel();
     await _events.close();
-    await _noteSubject.close();
+    await _noteController.close();
   }
 } 

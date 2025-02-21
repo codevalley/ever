@@ -25,6 +25,10 @@ class NoteDataSourceImpl implements NoteDataSource {
   
   final _eventController = StreamController<DomainEvent>.broadcast();
 
+  // Cache key constants
+  static const _noteCachePrefix = 'note:';
+  static const _noteListCacheKey = 'note:list';
+
   NoteDataSourceImpl({
     required this.client,
     required this.cache,
@@ -35,12 +39,19 @@ class NoteDataSourceImpl implements NoteDataSource {
 
   String get accessToken => getAccessToken();
 
+  String _getNoteKey(String noteId) => '$_noteCachePrefix$noteId';
+
+
   @override
   Stream<DomainEvent> get events => _eventController.stream;
+
+  // Add initialization flag
+  bool _isInitialized = false;
 
   @override
   Future<void> initialize() async {
     await cache.initialize();
+    _isInitialized = true;
   }
 
   @override
@@ -54,17 +65,39 @@ class NoteDataSourceImpl implements NoteDataSource {
     return true;
   }
 
-  /// Execute an operation with retry logic
-  Future<T> _executeWithRetry<T>(
+  /// Execute a Future operation with retry logic
+  Future<T> _executeWithRetryFuture<T>(
     String operation,
     Future<T> Function() apiCall,
   ) async {
     var attempts = 0;
     final startTime = DateTime.now();
+    
+    // Add a small delay before first attempt to ensure connection is ready
+    if (!_isInitialized) {
+      await Future.delayed(Duration(milliseconds: 100));
+      _isInitialized = true;
+    }
+
     while (true) {
       try {
         attempts++;
         iprint('Attempt $attempts executing $operation', '🔄');
+        
+        // For first attempt, ensure connection is ready
+        if (attempts == 1) {
+          try {
+            final testUrl = Uri.parse('${ApiConfig.apiBaseUrl}/health');
+            await client.get(
+              testUrl, 
+              headers: ApiConfig.headers.withAuth(accessToken)
+            ).timeout(Duration(seconds: 2));
+          } catch (e) {
+            // If health check fails, throw a retriable error
+            throw http.ClientException('Connection not ready');
+          }
+        }
+        
         return await apiCall();
       } catch (e) {
         final elapsed = DateTime.now().difference(startTime);
@@ -86,19 +119,19 @@ class NoteDataSourceImpl implements NoteDataSource {
     }
   }
 
+
   @override
   Stream<Note> create(Note note) async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.note.create));
     var attempts = 0;
 
     try {
-      final response = await _executeWithRetry(
+      final response = await _executeWithRetryFuture(
         ApiConfig.operations.note.create,
         () async {
           attempts++;
           final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.note.create}');
           final model = NoteModel.forCreation(
-
             content: note.content,
             userId: note.userId,
           );
@@ -118,15 +151,7 @@ class NoteDataSourceImpl implements NoteDataSource {
           iprint('Response Body: ${response.body}', '📦');
 
           if (response.statusCode == 201) {
-            try {
-              final responseData = json.decode(response.body);
-              if (!responseData.containsKey('data')) {
-                throw Exception('Invalid response format from server');
-              }
-              return response;
-            } catch (e) {
-              throw Exception('Invalid response format from server');
-            }
+            return response;
           } else {
             String error;
             try {
@@ -143,22 +168,23 @@ class NoteDataSourceImpl implements NoteDataSource {
         },
       );
 
-      try {
-        final responseData = json.decode(response.body);
-        final data = responseData['data'];
-        final createdNote = NoteModel.fromJson(data).toDomain();
-        
-        if (attempts > 1) {
-          _eventController.add(RetrySuccess(ApiConfig.operations.note.create, attempts));
-        }
-        
-        _eventController.add(OperationSuccess(ApiConfig.operations.note.create, createdNote));
-        _eventController.add(NoteCreated(createdNote));
-        
-        yield createdNote;
-      } catch (e) {
-        throw Exception('Failed to process server response: ${e.toString()}');
+      final responseData = json.decode(response.body);
+      final data = responseData['data'];
+      final createdNote = NoteModel.fromJson(data).toDomain();
+      
+      // Cache the newly created note
+      await cache.set(_getNoteKey(createdNote.id), data);
+      // Invalidate list cache since we have a new note
+      await cache.remove(_noteListCacheKey);
+      
+      if (attempts > 1) {
+        _eventController.add(RetrySuccess(ApiConfig.operations.note.create, attempts));
       }
+      
+      _eventController.add(OperationSuccess(ApiConfig.operations.note.create, createdNote));
+      _eventController.add(NoteCreated(createdNote));
+      
+      yield createdNote;
     } catch (e) {
       _eventController.add(OperationFailure(
         ApiConfig.operations.note.create,
@@ -174,7 +200,7 @@ class NoteDataSourceImpl implements NoteDataSource {
     var attempts = 0;
 
     try {
-      final response = await _executeWithRetry(
+      final response = await _executeWithRetryFuture(
         ApiConfig.operations.note.update,
         () async {
           attempts++;
@@ -262,7 +288,7 @@ class NoteDataSourceImpl implements NoteDataSource {
     var attempts = 0;
 
     try {
-      await _executeWithRetry(
+      await _executeWithRetryFuture(
         ApiConfig.operations.note.delete,
         () async {
           attempts++;
@@ -320,7 +346,7 @@ class NoteDataSourceImpl implements NoteDataSource {
     var attempts = 0;
 
     try {
-      final response = await _executeWithRetry(
+      final response = await _executeWithRetryFuture(
         ApiConfig.operations.note.list,
         () async {
           attempts++;
@@ -395,13 +421,25 @@ class NoteDataSourceImpl implements NoteDataSource {
   @override
   Stream<Note> read(String id) async* {
     _eventController.add(OperationInProgress(ApiConfig.operations.note.read));
-    var attempts = 0;
-
+    final cacheKey = _getNoteKey(id);
+    
     try {
-      final response = await _executeWithRetry(
+      // Log cache operation
+      iprint('Clearing cache for key: $cacheKey', '🗑️');
+      
+      // Clear cache and wait for completion
+      await cache.remove(cacheKey);
+      
+      // Verify cache is cleared
+      final cachedData = await cache.get(cacheKey);
+      if (cachedData != null) {
+        wprint('Cache not properly cleared for key: $cacheKey', '⚠️');
+      }
+
+      // Fetch fresh data
+      final response = await _executeWithRetryFuture(
         ApiConfig.operations.note.read,
         () async {
-          attempts++;
           final url = Uri.parse('${ApiConfig.apiBaseUrl}${ApiConfig.endpoints.note.note(id)}');
           
           iprint('API Request: GET $url', '🌐');
@@ -416,15 +454,9 @@ class NoteDataSourceImpl implements NoteDataSource {
           iprint('Response Body: ${response.body}', '📦');
 
           if (response.statusCode == 200) {
-            try {
-              final responseData = json.decode(response.body);
-              if (!responseData.containsKey('data')) {
-                throw Exception('Invalid response format from server');
-              }
-              return response;
-            } catch (e) {
-              throw Exception('Invalid response format from server');
-            }
+            return response;
+          } else if (response.statusCode == 404) {
+            throw Exception('Note not found');
           } else {
             String error;
             try {
@@ -441,21 +473,23 @@ class NoteDataSourceImpl implements NoteDataSource {
         },
       );
 
-      try {
-        final responseData = json.decode(response.body);
-        final data = responseData['data'];
-        final note = NoteModel.fromJson(data).toDomain();
-        
-        if (attempts > 1) {
-          _eventController.add(RetrySuccess(ApiConfig.operations.note.read, attempts));
-        }
-        
-        _eventController.add(OperationSuccess(ApiConfig.operations.note.read, note));
-        
-        yield note;
-      } catch (e) {
-        throw Exception('Failed to process server response: ${e.toString()}');
+      final responseData = json.decode(response.body);
+      final data = responseData['data'];
+      final note = NoteModel.fromJson(data).toDomain();
+      
+      // Validate fetched note matches requested ID
+      if (note.id != id) {
+        throw Exception('Server returned incorrect note');
       }
+      
+      // Store in cache
+      iprint('Storing note in cache with key: $cacheKey', '💾');
+      await cache.set(cacheKey, data);
+      
+      _eventController.add(OperationSuccess(ApiConfig.operations.note.read, note));
+      _eventController.add(NoteRetrieved(note));
+      
+      yield note;
     } catch (e) {
       _eventController.add(OperationFailure(
         ApiConfig.operations.note.read,
@@ -471,7 +505,7 @@ class NoteDataSourceImpl implements NoteDataSource {
     var attempts = 0;
 
     try {
-      final response = await _executeWithRetry(
+      final response = await _executeWithRetryFuture(
         ApiConfig.operations.note.search,
         () async {
           attempts++;
@@ -545,7 +579,7 @@ class NoteDataSourceImpl implements NoteDataSource {
     var attempts = 0;
 
     try {
-      final response = await _executeWithRetry(
+      final response = await _executeWithRetryFuture(
         ApiConfig.operations.note.process,
         () async {
           attempts++;
@@ -619,7 +653,7 @@ class NoteDataSourceImpl implements NoteDataSource {
     var attempts = 0;
 
     try {
-      final response = await _executeWithRetry(
+      final response = await _executeWithRetryFuture(
         ApiConfig.operations.note.addAttachment,
         () async {
           attempts++;

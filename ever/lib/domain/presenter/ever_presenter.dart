@@ -30,7 +30,7 @@ abstract class EverPresenter {
   Future<void> createNote(String content);
   Future<void> updateNote(String noteId, {String? content});
   Future<void> deleteNote(String noteId);
-  Future<Note> getNote(String noteId);
+  Stream<Note> getNote(String noteId);
   Future<List<Note>> listNotes({bool includeArchived = false});
 
   /// Task Actions

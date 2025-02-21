@@ -10,6 +10,7 @@ import '../../domain/presenter/ever_presenter.dart';
 import '../../domain/usecases/note/create_note_usecase.dart';
 import '../../domain/usecases/note/update_note_usecase.dart';
 import '../../domain/usecases/note/delete_note_usecase.dart';
+import '../../domain/usecases/note/get_note_usecase.dart';
 import '../../domain/usecases/note/list_notes_usecase.dart';
 import '../../domain/usecases/user/get_current_user_usecase.dart';
 import '../../domain/usecases/user/login_usecase.dart';
@@ -28,6 +29,7 @@ class FlutterEverPresenter implements EverPresenter {
   final CreateNoteUseCase _createNoteUseCase;
   final UpdateNoteUseCase _updateNoteUseCase;
   final DeleteNoteUseCase _deleteNoteUseCase;
+  final GetNoteUseCase _getNoteUseCase;
   final ListNotesUseCase _listNotesUseCase;
 
   final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
@@ -43,6 +45,7 @@ class FlutterEverPresenter implements EverPresenter {
     required CreateNoteUseCase createNoteUseCase,
     required UpdateNoteUseCase updateNoteUseCase,
     required DeleteNoteUseCase deleteNoteUseCase,
+    required GetNoteUseCase getNoteUseCase,
     required ListNotesUseCase listNotesUseCase,
   })  : _registerUseCase = registerUseCase,
         _loginUseCase = loginUseCase,
@@ -52,6 +55,7 @@ class FlutterEverPresenter implements EverPresenter {
         _createNoteUseCase = createNoteUseCase,
         _updateNoteUseCase = updateNoteUseCase,
         _deleteNoteUseCase = deleteNoteUseCase,
+        _getNoteUseCase = getNoteUseCase,
         _listNotesUseCase = listNotesUseCase {
     
     // Subscribe to all use case events and merge them into a single stream
@@ -64,6 +68,7 @@ class FlutterEverPresenter implements EverPresenter {
       _createNoteUseCase.events.listen(_events.add),
       _updateNoteUseCase.events.listen(_events.add),
       _deleteNoteUseCase.events.listen(_events.add),
+      _getNoteUseCase.events.listen(_events.add),
       _listNotesUseCase.events.listen(_events.add),
     ]);
 
@@ -350,17 +355,13 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   @override
-  Future<Note> getNote(String noteId) async {
+  Stream<Note> getNote(String noteId) {
     if (!_stateController.value.isAuthenticated) {
       throw Exception('Must be authenticated to get notes');
     }
     
-    final note = _stateController.value.notes.firstWhere(
-      (note) => note.id == noteId,
-      orElse: () => throw Exception('Note not found'),
-    );
-    
-    return note;
+    _getNoteUseCase.execute(GetNoteParams(id: noteId));
+    return _getNoteUseCase.note;
   }
 
   @override

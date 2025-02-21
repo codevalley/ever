@@ -468,36 +468,15 @@ class CliPresenter implements EverPresenter {
   }
 
   @override
-  Future<Note> getNote(String noteId) async {
+  Stream<Note> getNote(String noteId) {
     if (!_stateController.value.isAuthenticated) {
       throw Exception('Must be authenticated to get notes');
     }
     
     _updateState(_stateController.value.copyWith(isLoading: true));
     
-    try {
-      // Execute the use case
-      await _getNoteUseCase.execute(GetNoteParams(id: noteId));
-
-      // Wait for the first emission from the note stream
-      final note = await _getNoteUseCase.note.first;
-      
-      _updateState(_stateController.value.copyWith(
-        isLoading: false,
-        notes: [
-          ..._stateController.value.notes.where((n) => n.id != noteId),
-          note
-        ],
-      ));
-
-      return note;
-    } catch (e) {
-      _updateState(_stateController.value.copyWith(
-        isLoading: false,
-        error: e.toString(),
-      ));
-      rethrow;
-    }
+    _getNoteUseCase.execute(GetNoteParams(id: noteId));
+    return _getNoteUseCase.note;
   }
 
   @override
