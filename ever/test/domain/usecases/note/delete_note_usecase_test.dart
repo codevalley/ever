@@ -34,7 +34,7 @@ void main() {
     const params = DeleteNoteParams(noteId: 'note123');
 
     when(mockRepository.delete(params.noteId))
-        .thenAnswer((_) => Stream.value(params.noteId));
+        .thenAnswer((_) => Stream.value(null));
 
     await useCase.execute(params);
     await Future.delayed(Duration.zero);
@@ -75,7 +75,7 @@ void main() {
           if (attempts <= 3) {
             return Stream.error('Network error');
           }
-          return Stream.value(params.noteId);
+          return Stream.value(null);
         });
 
     await useCase.execute(params);
@@ -122,7 +122,7 @@ void main() {
   test('prevents concurrent deletions', () async {
     const params = DeleteNoteParams(noteId: 'note123');
 
-    final completer = Completer<String>();
+    final completer = Completer<void>();
     when(mockRepository.delete(params.noteId))
         .thenAnswer((_) => Stream.fromFuture(completer.future));
 
@@ -135,7 +135,7 @@ void main() {
     await Future.delayed(Duration.zero);
 
     // Complete first deletion
-    completer.complete(params.noteId);
+    completer.complete();
     await Future.delayed(Duration.zero);
 
     // Verify only one deletion was attempted

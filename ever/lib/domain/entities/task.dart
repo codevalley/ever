@@ -8,6 +8,9 @@ class Task {
   final List<String> tags;
   final String? parentId;
   final String? topicId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final ProcessingStatus processingStatus;
 
   const Task({
     required this.id,
@@ -18,6 +21,9 @@ class Task {
     this.tags = const [],
     this.parentId,
     this.topicId,
+    this.createdAt,
+    this.updatedAt,
+    this.processingStatus = ProcessingStatus.pending,
   });
 }
 
@@ -33,4 +39,11 @@ enum TaskPriority {
   low,
   medium,
   high,
+}
+
+/// Processing status of a task
+enum ProcessingStatus {
+  pending,
+  completed,
+  failed,
 }

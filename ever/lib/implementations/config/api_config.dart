@@ -39,6 +39,9 @@ class _Endpoints {
 
   /// Note endpoints
   final note = const _NoteEndpoints();
+
+  /// Task endpoints
+  final task = const _TaskEndpoints();
 }
 
 /// Authentication related endpoints
@@ -76,6 +79,23 @@ class _NoteEndpoints {
 
   /// Add attachment endpoint
   String attachment(String id) => '/notes/$id/attachments';
+}
+
+/// Task related endpoints
+class _TaskEndpoints {
+  const _TaskEndpoints();
+
+  /// Create task endpoint
+  String get create => '/tasks';
+
+  /// Task operations endpoint
+  String task(String id) => '/tasks/$id';
+
+  /// List tasks endpoint
+  String get list => '/tasks';
+
+  /// Process task endpoint
+  String process(String id) => '/tasks/$id/process';
 }
 
 /// Token related configuration
@@ -208,6 +228,9 @@ class _Operations {
 
   /// Note related operations
   final note = const _NoteOperations();
+
+  /// Task related operations
+  final task = const _TaskOperations();
 }
 
 /// Authentication related operation names
@@ -263,4 +286,24 @@ class _NoteOperations {
 
   /// Generic note operation name
   String get generic => 'note_operation';
+}
+
+/// Task related operation names
+class _TaskOperations {
+  const _TaskOperations();
+
+  /// Create task operation name
+  String get create => 'task_create';
+
+  /// Update task operation name
+  String get update => 'task_update';
+
+  /// Delete task operation name
+  String get delete => 'task_delete';
+
+  /// List tasks operation name
+  String get list => 'task_list';
+
+  /// Read task operation name
+  String get read => 'task_read';
 }
