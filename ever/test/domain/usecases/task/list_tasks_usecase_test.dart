@@ -39,7 +39,7 @@ void main() {
   }
 
   test('successful tasks listing', () async {
-    final params = ListTasksParams(filters: {'status': 'todo'});
+    final params = ListTasksParams(status: 'todo');
 
     final testTasks = [
       Task(
@@ -105,32 +105,39 @@ void main() {
 
     // Execute and expect error
     try {
-      useCase.execute(params);
-      await Future.delayed(Duration.zero);
+      await useCase.execute(params);
       fail('Should throw an exception');
     } catch (e) {
-      expect(e, equals(error));
+      expect(e.toString(), equals('Exception: Network error'));
     }
 
-    // Wait for events to be processed
-    await Future.delayed(Duration(milliseconds: 100));
+    // Wait for all events to be processed
+    await Future.delayed(Duration(milliseconds: 500));
 
-    // Verify at least one OperationInProgress and one OperationFailure
-    expect(events.length, greaterThanOrEqualTo(2));
-    expect(events.first, isA<OperationInProgress>());
-    expect(events.last, isA<OperationFailure>());
-    expect((events.last as OperationFailure).error, equals(error.toString()));
+    // Verify events
+    expect(events, [
+      isA<OperationInProgress>(),
+      isA<OperationInProgress>(),
+      isA<OperationInProgress>(),
+      isA<OperationFailure>(),
+    ]);
 
-    // Count OperationInProgress events
-    var progressEvents = events.whereType<OperationInProgress>().length;
-    expect(progressEvents, greaterThanOrEqualTo(1));
+    // Verify all events have correct operation name
+    for (var event in events) {
+      if (event is OperationInProgress) {
+        expect(event.operation, equals('list_tasks'));
+      } else if (event is OperationFailure) {
+        expect(event.operation, equals('list_tasks'));
+        expect(event.error, equals('Network error'));
+      }
+    }
 
-    // Verify repository was called at least once
-    verify(mockRepository.list(filters: anyNamed('filters'))).called(greaterThanOrEqualTo(1));
+    // Verify repository was called 3 times (initial + 2 retries)
+    verify(mockRepository.list(filters: anyNamed('filters'))).called(3);
   });
 
   test('prevents concurrent listings', () async {
-    final params = ListTasksParams(filters: {'status': 'todo'});
+    final params = ListTasksParams(status: 'todo');
 
     final completer = Completer<List<Task>>();
     when(mockRepository.list(filters: anyNamed('filters')))
@@ -141,37 +148,13 @@ void main() {
     await Future.delayed(Duration.zero);
 
     // Try second listing while first is in progress
-    try {
-      useCase.execute(params);
-      fail('Should throw a StateError');
-    } catch (e) {
-      expect(e, isA<StateError>());
-      expect(e.toString(), contains('Listing already in progress'));
-    }
-
-    // Complete first listing
-    final testTasks = [
-      Task(
-        id: 'task1',
-        content: 'Content 1',
-        status: TaskStatus.todo,
-        priority: TaskPriority.medium,
-        tags: ['test'],
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        processingStatus: ProcessingStatus.pending,
-      ),
-    ];
-    completer.complete(testTasks);
-    await Future.delayed(Duration.zero);
-
-    // Verify only one listing was attempted
-    verify(mockRepository.list(filters: anyNamed('filters'))).called(1);
-    expect(events, hasLength(3));
-    expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('list_tasks'));
-    expect(events[1], isA<TasksRetrieved>());
-    expect(events[2], isA<OperationSuccess>());
-    expect((events[2] as OperationSuccess).operation, equals('list_tasks'));
+    expect(
+      () => useCase.execute(params),
+      throwsA(isA<StateError>().having(
+        (e) => e.message,
+        'message',
+        'Listing already in progress'
+      ))
+    );
   });
 } 

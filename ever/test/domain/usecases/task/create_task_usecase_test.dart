@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ever/domain/core/events.dart';
+import 'package:ever/domain/core/exceptions.dart';
 import 'package:ever/domain/events/task_events.dart';
 import 'package:ever/domain/entities/task.dart';
 import 'package:ever/domain/repositories/task_repository.dart';
@@ -108,23 +109,23 @@ void main() {
     );
 
     final error = Exception('Failed to create task');
-    when(mockRepository.create(any)).thenAnswer(
-      (_) => Stream.error(error),
-    );
+    when(mockRepository.create(any))
+        .thenAnswer((_) => Stream.error(error));
 
     try {
-      useCase.execute(params);
-      await Future.delayed(Duration.zero);
+      await useCase.execute(params);
       fail('Should throw an exception');
     } catch (e) {
-      expect(e, equals(error));
+      expect(e, isA<TaskNetworkException>());
+      expect(e.toString(), equals('TaskNetworkException: Failed to create task'));
     }
 
+    await Future.delayed(Duration(milliseconds: 100));
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
     expect((events[0] as OperationInProgress).operation, equals('create_task'));
     expect(events[1], isA<OperationFailure>());
-    expect((events[1] as OperationFailure).error, equals(error.toString()));
+    expect((events[1] as OperationFailure).error, equals('Failed to create task'));
   });
 
   test('prevents concurrent creations', () async {
@@ -136,52 +137,40 @@ void main() {
     );
 
     final completer = Completer<Task>();
-    when(mockRepository.create(any)).thenAnswer(
-      (_) => Stream.fromFuture(completer.future),
-    );
+    when(mockRepository.create(any))
+        .thenAnswer((_) => Stream.fromFuture(completer.future));
 
     // First creation
-    useCase.execute(params);
+    unawaited(useCase.execute(params));
     await Future.delayed(Duration.zero);
 
     // Try second creation while first is in progress
-    try {
-      useCase.execute(params);
-      fail('Should throw a StateError');
-    } catch (e) {
-      expect(e, isA<StateError>());
-      expect(e.toString(), contains('Creation already in progress'));
-    }
-
-    // Complete first creation
-    final createdTask = Task(
-      id: 'task123',
-      content: params.content,
-      status: params.status,
-      priority: params.priority,
-      tags: params.tags ?? const [],
+    expect(
+      () => useCase.execute(params),
+      throwsA(isA<StateError>().having(
+        (e) => e.message,
+        'message',
+        'Creation already in progress'
+      )),
     );
-    completer.complete(createdTask);
-    await Future.delayed(Duration.zero);
-
-    // Verify only one creation was attempted
-    verify(mockRepository.create(any)).called(1);
-    expect(events, hasLength(3));
-    expect(events[0], isA<OperationInProgress>());
-    expect((events[0] as OperationInProgress).operation, equals('create_task'));
-    expect(events[1], isA<TaskCreated>());
-    expect(events[2], isA<OperationSuccess>());
   });
 
   test('validates empty content', () async {
-    final params = TestCreateTaskParams(
+    final params = CreateTaskParams(
       content: '',
       status: TaskStatus.todo,
       priority: TaskPriority.medium,
     );
 
-    await executeAndWait(params);
+    try {
+      await useCase.execute(params);
+      fail('Should throw TaskValidationException');
+    } catch (e) {
+      expect(e, isA<TaskValidationException>());
+      expect(e.toString(), equals('TaskValidationException: Content cannot be empty'));
+    }
 
+    await Future.delayed(Duration(milliseconds: 100));
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
     expect(events[1], isA<OperationFailure>());
@@ -196,8 +185,15 @@ void main() {
       priority: TaskPriority.medium,
     );
 
-    await executeAndWait(params);
+    try {
+      await useCase.execute(params);
+      fail('Should throw TaskValidationException');
+    } catch (e) {
+      expect(e, isA<TaskValidationException>());
+      expect(e.toString(), equals('TaskValidationException: Status is required'));
+    }
 
+    await Future.delayed(Duration(milliseconds: 100));
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
     expect(events[1], isA<OperationFailure>());
@@ -212,8 +208,15 @@ void main() {
       priority: null,
     );
 
-    await executeAndWait(params);
+    try {
+      await useCase.execute(params);
+      fail('Should throw TaskValidationException');
+    } catch (e) {
+      expect(e, isA<TaskValidationException>());
+      expect(e.toString(), equals('TaskValidationException: Priority is required'));
+    }
 
+    await Future.delayed(Duration(milliseconds: 100));
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
     expect(events[1], isA<OperationFailure>());

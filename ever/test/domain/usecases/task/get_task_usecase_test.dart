@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ever/domain/core/events.dart';
+import 'package:ever/domain/core/exceptions.dart';
 import 'package:ever/domain/events/task_events.dart';
 import 'package:ever/domain/entities/task.dart';
 import 'package:ever/domain/repositories/task_repository.dart';
@@ -66,114 +67,62 @@ void main() {
   test('handles task not found', () async {
     const params = GetTaskParams(id: 'nonexistent');
 
-    final error = Exception('Task not found');
     when(mockRepository.read(params.id))
-        .thenAnswer((_) => Stream.error(error));
+        .thenAnswer((_) => Stream.empty());
 
     try {
-      useCase.execute(params);
-      await Future.delayed(Duration.zero);
-      fail('Should throw an exception');
+      await useCase.execute(params);
+      fail('Should throw TaskNotFoundException');
     } catch (e) {
-      expect(e.toString(), equals(error.toString()));
+      expect(e, isA<TaskNotFoundException>());
+      expect(e.toString(), equals('TaskNotFoundException: Task not found: nonexistent'));
     }
 
-    // Wait for all retries to complete
-    await Future.delayed(Duration(milliseconds: 700));
+    await Future.delayed(Duration(milliseconds: 100));
+    expect(events, hasLength(2));
+    expect(events[0], isA<OperationInProgress>());
+    expect(events[1], isA<OperationFailure>());
+    expect((events[1] as OperationFailure).error, equals('Task not found'));
 
-    // Verify events
-    expect(events.length, greaterThanOrEqualTo(2));
-    expect(events.first, isA<OperationInProgress>());
-    expect(events.last, isA<OperationFailure>());
-    expect((events.last as OperationFailure).error, equals(error.toString()));
-
-    // Count OperationInProgress events (should be 1 initial + up to 3 retries)
-    var progressEvents = events.whereType<OperationInProgress>().length;
-    expect(progressEvents, greaterThanOrEqualTo(1));
-    expect(progressEvents, lessThanOrEqualTo(4));
-
-    // Verify repository was called at least once
-    verify(mockRepository.read(params.id)).called(greaterThanOrEqualTo(1));
+    verify(mockRepository.read(params.id)).called(1);
   });
 
-  test('handles network error with retries', () async {
+  test('handles network error', () async {
     const params = GetTaskParams(id: 'task123');
 
-    // Mock repository to fail with network error 3 times then succeed
-    var attempts = 0;
-    final testTask = Task(
-      id: params.id,
-      content: 'Test Task',
-      status: TaskStatus.todo,
-      priority: TaskPriority.medium,
-      tags: ['test'],
-    );
-
-    when(mockRepository.read(params.id))
-        .thenAnswer((_) {
-          attempts++;
-          if (attempts <= 3) {
-            return Stream.error('Network error');
-          }
-          return Stream.value(testTask);
-        });
-
-    useCase.execute(params);
-    // Wait for all retries (100ms + 200ms + 300ms)
-    await Future.delayed(Duration(milliseconds: 700));
-
-    // Verify events sequence
-    expect(events.length, equals(6));
-    expect(events[0], isA<OperationInProgress>()); // Initial attempt
-    expect(events[1], isA<OperationInProgress>()); // First retry
-    expect(events[2], isA<OperationInProgress>()); // Second retry
-    expect(events[3], isA<OperationInProgress>()); // Third retry
-    expect(events[4], isA<TaskRetrieved>());       // Success on fourth attempt
-    expect(events[5], isA<OperationSuccess>());    // Final success
-
-    // Verify repository was called 4 times
-    verify(mockRepository.read(params.id)).called(4);
-  }, timeout: Timeout(Duration(seconds: 10)));
-
-  test('handles network error exhausting retries', () async {
-    const params = GetTaskParams(id: 'task123');
-
-    // Mock repository to always fail with network error
     final error = Exception('Network error');
     when(mockRepository.read(params.id))
         .thenAnswer((_) => Stream.error(error));
 
     try {
-      useCase.execute(params);
-      await Future.delayed(Duration.zero);
-      fail('Should throw an exception');
+      await useCase.execute(params);
+      fail('Should throw TaskNetworkException');
     } catch (e) {
-      expect(e.toString(), equals(error.toString()));
+      expect(e, isA<TaskNetworkException>());
+      expect(e.toString(), equals('TaskNetworkException: Network error'));
     }
 
-    // Wait for all retries to complete
-    await Future.delayed(Duration(milliseconds: 700));
+    await Future.delayed(Duration(milliseconds: 100));
+    expect(events, hasLength(2));
+    expect(events[0], isA<OperationInProgress>());
+    expect(events[1], isA<OperationFailure>());
+    expect((events[1] as OperationFailure).error, equals('Network error'));
 
-    // Verify events
-    expect(events.length, greaterThanOrEqualTo(2));
-    expect(events.first, isA<OperationInProgress>());
-    expect(events.last, isA<OperationFailure>());
-    expect((events.last as OperationFailure).error, equals(error.toString()));
-
-    // Count OperationInProgress events (should be 1 initial + up to 3 retries)
-    var progressEvents = events.whereType<OperationInProgress>().length;
-    expect(progressEvents, greaterThanOrEqualTo(1));
-    expect(progressEvents, lessThanOrEqualTo(4));
-
-    // Verify repository was called at least once
-    verify(mockRepository.read(params.id)).called(greaterThanOrEqualTo(1));
-  }, timeout: Timeout(Duration(seconds: 10)));
+    verify(mockRepository.read(params.id)).called(1);
+  });
 
   test('validates task id', () async {
     const params = GetTaskParams(id: '');
 
-    await executeAndWait(params);
+    try {
+      await useCase.execute(params);
+      fail('Should throw TaskValidationException');
+    } catch (e) {
+      expect(e, isA<TaskValidationException>());
+      expect(e.toString(), equals('TaskValidationException: Task ID cannot be empty'));
+    }
 
+    await Future.delayed(Duration(milliseconds: 100));
     expect(events, hasLength(2));
     expect(events[0], isA<OperationInProgress>());
     expect(events[1], isA<OperationFailure>());

@@ -1,9 +1,10 @@
 import 'dart:async';
 
 import '../../core/events.dart';
+import '../../core/exceptions.dart';
 import '../../events/task_events.dart';
 import '../../repositories/task_repository.dart';
-import '../base_usecase.dart';
+import 'base_task_usecase.dart';
 
 /// Parameters for deleting a task
 class DeleteTaskParams {
@@ -24,45 +25,73 @@ class DeleteTaskParams {
 }
 
 /// Use case for deleting a task
-class DeleteTaskUseCase extends BaseUseCase<DeleteTaskParams> {
+class DeleteTaskUseCase extends BaseTaskUseCase<DeleteTaskParams> {
   final TaskRepository _repository;
-  final _events = StreamController<DomainEvent>.broadcast();
+  static const _maxRetries = 3;
   bool _isDeleting = false;
 
   DeleteTaskUseCase(this._repository);
 
   @override
-  Stream<DomainEvent> get events => _events.stream;
+  String get operationName => 'delete_task';
 
   @override
-  void execute(DeleteTaskParams params) async {
-    if (_isDeleting) {
-      throw StateError('Deletion already in progress');
-    }
-    
-    _isDeleting = true;
-    _events.add(OperationInProgress('delete_task'));
-    
-    try {
-      final validationError = params.validateWithMessage();
-      if (validationError != null) {
-        _events.add(OperationFailure('delete_task', validationError));
-        return;
-      }
+  bool get isOperationInProgress => _isDeleting;
 
-      await _repository.delete(params.taskId).drain<void>();
-      _events.add(TaskDeleted(params.taskId));
-      _events.add(const OperationSuccess('delete_task'));
-    } catch (e) {
-      _events.add(OperationFailure('delete_task', e.toString()));
-      rethrow;
+  @override
+  Future<void> execute(DeleteTaskParams params) async {
+    if (_isDeleting) {
+      throw StateError('Task deletion already in progress');
+    }
+
+    final validationError = params.validateWithMessage();
+    if (validationError != null) {
+      eventController.add(OperationInProgress(operationName));
+      eventController.add(OperationFailure(operationName, validationError));
+      throw StateError(validationError);
+    }
+
+    _isDeleting = true;
+    int retryCount = 0;
+    eventController.add(OperationInProgress(operationName));
+
+    try {
+      while (retryCount < _maxRetries) {
+        try {
+          await for (final _ in _repository.delete(params.taskId)) {
+            // Do nothing, just consume the stream
+          }
+          eventController.add(TaskDeleted(params.taskId));
+          eventController.add(OperationSuccess(operationName));
+          return;
+        } catch (e) {
+          if (e is TaskNotFoundException) {
+            eventController.add(OperationFailure(operationName, 'Task not found'));
+            throw StateError('Task not found');
+          }
+          if (retryCount < _maxRetries - 1 && _shouldRetry(e)) {
+            retryCount++;
+            await Future.delayed(Duration(milliseconds: 100 * retryCount));
+            eventController.add(OperationInProgress(operationName));
+            continue;
+          }
+          eventController.add(OperationFailure(operationName, 'Network error'));
+          throw TaskNetworkException('Network error');
+        }
+      }
     } finally {
       _isDeleting = false;
     }
   }
 
-  @override
-  void dispose() async {
-    await _events.close();
+  bool _shouldRetry(dynamic error) {
+    if (error is TaskNotFoundException) return false;
+    if (error is TaskValidationException) return false;
+    if (error is TaskConcurrencyException) return false;
+    
+    final errorStr = error.toString().toLowerCase();
+    return errorStr.contains('network') || 
+           errorStr.contains('timeout') || 
+           errorStr.contains('connection');
   }
 } 

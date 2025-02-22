@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import '../../core/events.dart';
+import '../../core/exceptions.dart';
 import '../../entities/task.dart';
 import '../../events/task_events.dart';
 import '../../repositories/task_repository.dart';
-import '../base_usecase.dart';
+import 'base_task_usecase.dart';
 
 /// Parameters for creating a task
 class CreateTaskParams {
@@ -30,39 +31,39 @@ class CreateTaskParams {
 
   String? validateWithMessage() {
     if (content.isEmpty) {
-      return 'Task content cannot be empty';
+      return 'Content cannot be empty';
     }
     return null;
   }
 }
 
 /// Use case for creating a task
-class CreateTaskUseCase extends BaseUseCase<CreateTaskParams> {
+class CreateTaskUseCase extends BaseTaskUseCase<CreateTaskParams> {
   final TaskRepository _repository;
-  final _events = StreamController<DomainEvent>.broadcast();
   bool _isCreating = false;
 
   CreateTaskUseCase(this._repository);
 
   @override
-  Stream<DomainEvent> get events => _events.stream;
+  String get operationName => 'create_task';
 
   @override
-  void execute(CreateTaskParams params) async {
+  Future<void> execute(CreateTaskParams params) async {
     if (_isCreating) {
       throw StateError('Creation already in progress');
     }
+
+    final validationError = params.validateWithMessage();
+    if (validationError != null) {
+      eventController.add(OperationInProgress(operationName));
+      eventController.add(OperationFailure(operationName, validationError));
+      throw TaskValidationException(validationError);
+    }
     
     _isCreating = true;
-    _events.add(OperationInProgress('create_task'));
+    eventController.add(OperationInProgress(operationName));
     
     try {
-      final validationError = params.validateWithMessage();
-      if (validationError != null) {
-        _events.add(OperationFailure('create_task', validationError));
-        return;
-      }
-
       final task = Task(
         id: '', // Will be set by backend
         content: params.content,
@@ -76,20 +77,24 @@ class CreateTaskUseCase extends BaseUseCase<CreateTaskParams> {
       );
 
       await for (final createdTask in _repository.create(task)) {
-        _events.add(TaskCreated(createdTask));
+        eventController.add(TaskCreated(createdTask));
       }
       
-      _events.add(const OperationSuccess('create_task'));
+      eventController.add(OperationSuccess(operationName));
     } catch (e) {
-      _events.add(OperationFailure('create_task', e.toString()));
-      rethrow;
+      final error = e is Exception ? e.toString().replaceFirst('Exception: ', '') : e.toString();
+      eventController.add(OperationFailure(operationName, error));
+      if (e is DomainException) {
+        rethrow;
+      }
+      throw TaskNetworkException(error);
     } finally {
       _isCreating = false;
     }
   }
 
   @override
-  void dispose() async {
-    await _events.close();
+  Future<void> dispose() async {
+    await eventController.close();
   }
 } 
