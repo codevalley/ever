@@ -5,7 +5,7 @@ abstract class DomainException implements Exception {
   const DomainException(this.message);
   
   @override
-  String toString() => '${runtimeType}: $message';
+  String toString() => '$runtimeType: $message';
 }
 
 /// Base exception class for all task-related exceptions
@@ -25,7 +25,7 @@ class TaskNotFoundException extends TaskException {
 
 /// Exception thrown when task validation fails
 class TaskValidationException extends TaskException {
-  TaskValidationException(String message) : super(message);
+  TaskValidationException(super.message);
 }
 
 /// Exception thrown when a network operation fails
@@ -36,7 +36,7 @@ class TaskNetworkException extends TaskException {
 
 /// Exception thrown when concurrent operations are attempted
 class TaskConcurrencyException extends TaskException {
-  TaskConcurrencyException(String message) : super(message);
+  TaskConcurrencyException(super.message);
 }
 
 /// Exception thrown when a task operation times out
@@ -58,20 +58,20 @@ class TaskRetryExhaustedException extends TaskException {
 
 /// Thrown when a note operation fails due to validation errors
 class NoteValidationException extends DomainException {
-  NoteValidationException(String message) : super(message);
+  NoteValidationException(super.message);
 }
 
 /// Thrown when a note is not found
 class NoteNotFoundException extends DomainException {
-  NoteNotFoundException(String message) : super(message);
+  NoteNotFoundException(super.message);
 }
 
 /// Thrown when a note operation fails due to network errors
 class NoteNetworkException extends DomainException {
-  NoteNetworkException(String message) : super(message);
+  NoteNetworkException(super.message);
 }
 
 /// Thrown when attempting concurrent operations on a note
 class NoteConcurrencyException extends DomainException {
-  NoteConcurrencyException(String message) : super(message);
+  NoteConcurrencyException(super.message);
 } 
