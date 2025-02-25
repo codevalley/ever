@@ -225,6 +225,8 @@ class TaskDataSourceImpl implements TaskDataSource {
           iprint('API Request: PUT $url', '🌐');
           iprint('Request Headers: ${ApiConfig.headers.withAuth(accessToken)}', '📤');
           iprint('Request Body: $body', '📦');
+          iprint('Task Status: ${task.status}', '🔍');
+          iprint('Formatted Status: ${TaskModel.formatStatus(task.status)}', '🔍');
           
           final response = await client.put(
             url,

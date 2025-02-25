@@ -557,3 +557,97 @@ interface ValidationResult {
    - Integration tests for repositories
    - E2E tests for critical flows
    - Mock data sources for testing
+
+## Data Transformation Patterns
+
+### Current Approach: Model-Based Transformation
+
+We currently handle data transformation within our model classes:
+
+```dart
+class TaskModel {
+  // ... properties ...
+
+  // Convert from JSON
+  factory TaskModel.fromJson(Map<String, dynamic> json) {
+    return TaskModel(
+      id: json['id'].toString(),
+      content: json['content'] as String,
+      status: _parseStatus(json['status'] as String?),
+      // ... other fields
+    );
+  }
+
+  // Convert to JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'content': content,
+      'status': _formatStatus(status),
+      // ... other fields
+    };
+  }
+
+  // Convert to domain entity
+  Task toDomain() {
+    return Task(
+      id: id,
+      content: content,
+      status: status,
+      // ... other fields
+    );
+  }
+}
+```
+
+### Alternative: Separate Mapper Pattern
+
+We considered but decided against a separate mapper pattern:
+
+```dart
+// This pattern was considered but not implemented
+abstract class TaskMapper {
+  Task toDomain(Map<String, dynamic> json);
+  Map<String, dynamic> toJson(Task task);
+  String formatStatus(TaskStatus status);
+  TaskStatus parseStatus(String status);
+}
+```
+
+### Why We Chose Model-Based Transformation
+
+1. **Encapsulation**: Transformation logic lives with the data it transforms
+2. **Reduced Complexity**: No need for additional mapper classes
+3. **Clear Responsibility**: Models handle their own serialization
+4. **Type Safety**: Transformation methods are part of the type they handle
+
+### Best Practices
+
+1. Keep transformation methods in model classes
+2. Use static methods for utility functions
+3. Handle null values gracefully
+4. Document format requirements
+5. Include validation in transformation
+
+### Example: Task Status Transformation
+
+```dart
+class TaskModel {
+  static String _formatStatus(TaskStatus status) {
+    switch (status) {
+      case TaskStatus.todo: return 'todo';
+      case TaskStatus.inProgress: return 'in_progress';
+      case TaskStatus.done: return 'done';
+    }
+  }
+
+  static TaskStatus _parseStatus(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'in_progress': return TaskStatus.inProgress;
+      case 'done': return TaskStatus.done;
+      case 'todo':
+      default: return TaskStatus.todo;
+    }
+  }
+}
+```

@@ -322,6 +322,75 @@ If you're migrating from a different architecture:
    - Use weak references
    - Monitor memory usage
 
+## Use Case Interfaces and Presenters
+
+### Current Implementation
+
+Currently, presenters directly use concrete use case implementations:
+
+```dart
+class CliPresenter implements EverPresenter {
+  final CreateTaskUseCase _createTaskUseCase;
+  final UpdateTaskUseCase _updateTaskUseCase;
+  // ... other use cases
+}
+```
+
+### Future Enhancement: Use Case Interfaces
+
+To further decouple the presentation layer from use case implementations, we can introduce use case interfaces:
+
+```dart
+abstract class ICreateTaskUseCase {
+  Stream<DomainEvent> get events;
+  Future<void> execute(CreateTaskParams params);
+  Future<void> dispose();
+}
+
+abstract class IUpdateTaskUseCase {
+  Stream<DomainEvent> get events;
+  Future<void> execute(UpdateTaskParams params);
+  Future<void> dispose();
+}
+
+// Presenter would then use interfaces
+class CliPresenter implements EverPresenter {
+  final ICreateTaskUseCase _createTaskUseCase;
+  final IUpdateTaskUseCase _updateTaskUseCase;
+  // ... other use cases
+}
+```
+
+### Benefits of Use Case Interfaces
+
+1. **Looser Coupling**: Presenters depend on abstractions, not implementations
+2. **Easier Testing**: Use cases can be mocked using interfaces
+3. **Implementation Flexibility**: Different implementations can be provided
+4. **Clear Contracts**: Interfaces define clear use case boundaries
+
+### Implementation Guidelines
+
+When implementing use case interfaces:
+
+1. Define clear, focused interfaces for each use case
+2. Keep interfaces in the domain layer
+3. Move implementation details to concrete classes
+4. Use dependency injection to provide implementations
+
+### Example: Task Creation Flow
+
+```mermaid
+graph TD
+    UI[UI Layer] --> |Action| P[Presenter]
+    P --> |execute| IUC[ICreateTaskUseCase]
+    IUC --> |implements| UC[CreateTaskUseCase]
+    UC --> |uses| R[TaskRepository]
+    
+    %% Event Flow
+    UC --> |events| P
+    P --> |state| UI
+```
+
 ## Conclusion
 
 This architecture provides:

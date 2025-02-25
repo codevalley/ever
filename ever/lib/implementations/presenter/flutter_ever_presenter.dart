@@ -148,6 +148,9 @@ class FlutterEverPresenter implements EverPresenter {
   @override
   Stream<EverState> get state => _stateController.stream;
 
+  @override
+  Stream<DomainEvent> get events => _events.stream;
+
   void _updateState(EverState newState) {
     // Only emit state if it's different from the current state
     if (_stateController.value != newState) {
@@ -417,43 +420,52 @@ class FlutterEverPresenter implements EverPresenter {
   }
 
   @override
-  Future<void> createTask({required String title, String? description}) async {
+  Future<void> createTask({
+    required String content,
+    TaskStatus? status = TaskStatus.todo,
+    TaskPriority? priority = TaskPriority.medium,
+    DateTime? dueDate,
+    List<String>? tags,
+    String? parentId,
+    String? topicId,
+  }) async {
     if (!_stateController.value.isAuthenticated) {
       throw Exception('Must be authenticated to create tasks');
     }
     
     _createTaskUseCase.execute(CreateTaskParams(
-      content: title,
-      status: TaskStatus.todo,
-      priority: TaskPriority.medium,
-      tags: description != null ? [description] : [],
+      content: content,
+      status: status ?? TaskStatus.todo,
+      priority: priority ?? TaskPriority.medium,
+      tags: tags,
+      parentId: parentId,
+      topicId: topicId,
     ));
   }
 
   @override
-  Future<void> updateTask(String taskId, {String? title, String? description, String? status}) async {
+  Future<void> updateTask(String taskId, {
+    String? content,
+    TaskStatus? status,
+    TaskPriority? priority,
+    DateTime? dueDate,
+    List<String>? tags,
+    String? parentId,
+    String? topicId,
+  }) async {
     if (!_stateController.value.isAuthenticated) {
       throw Exception('Must be authenticated to update tasks');
     }
     
     _updateTaskUseCase.execute(UpdateTaskParams(
       taskId: taskId,
-      content: title,
-      status: status != null ? _parseTaskStatus(status) : null,
+      content: content,
+      status: status,
+      priority: priority,
+      tags: tags,
+      parentId: parentId,
+      topicId: topicId,
     ));
-  }
-
-  TaskStatus _parseTaskStatus(String status) {
-    switch (status.toLowerCase()) {
-      case 'todo':
-        return TaskStatus.todo;
-      case 'in_progress':
-        return TaskStatus.inProgress;
-      case 'done':
-        return TaskStatus.done;
-      default:
-        throw ArgumentError('Invalid task status: $status');
-    }
   }
 
   @override

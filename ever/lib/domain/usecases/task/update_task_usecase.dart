@@ -16,6 +16,7 @@ class UpdateTaskParams {
   final List<String>? tags;
   final String? parentId;
   final String? topicId;
+  final DateTime? dueDate;
 
   const UpdateTaskParams({
     required this.taskId,
@@ -25,14 +26,12 @@ class UpdateTaskParams {
     this.tags,
     this.parentId,
     this.topicId,
+    this.dueDate,
   });
 
   bool validate() {
     if (taskId.isEmpty) return false;
     if (content != null && content!.isEmpty) return false;
-    if (status != null && !TaskStatus.values.contains(status)) {
-      return false;
-    }
     return true;
   }
 
@@ -42,9 +41,6 @@ class UpdateTaskParams {
     }
     if (content != null && content!.isEmpty) {
       return 'Content cannot be empty if provided';
-    }
-    if (status != null && !TaskStatus.values.contains(status)) {
-      return 'Invalid status. Must be one of: ${TaskStatus.values.join(', ')}';
     }
     return null;
   }
@@ -109,6 +105,7 @@ class UpdateTaskUseCase extends BaseTaskUseCase<UpdateTaskParams> {
         content: params.content ?? existingTask.content,
         status: params.status ?? existingTask.status,
         priority: params.priority ?? existingTask.priority,
+        dueDate: params.dueDate ?? existingTask.dueDate,
         tags: params.tags ?? existingTask.tags,
         parentId: params.parentId ?? existingTask.parentId,
         topicId: params.topicId ?? existingTask.topicId,

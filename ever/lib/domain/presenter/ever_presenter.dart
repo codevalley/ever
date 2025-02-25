@@ -38,8 +38,24 @@ abstract class EverPresenter {
   Future<List<Note>> listNotes({bool includeArchived = false});
 
   /// Task Actions
-  Future<void> createTask({required String title, String? description});
-  Future<void> updateTask(String taskId, {String? title, String? description, String? status});
+  Future<void> createTask({
+    required String content,
+    TaskStatus? status = TaskStatus.todo,
+    TaskPriority? priority = TaskPriority.medium,
+    DateTime? dueDate,
+    List<String>? tags,
+    String? parentId,
+    String? topicId,
+  });
+  Future<void> updateTask(String taskId, {
+    String? content,
+    TaskStatus? status,
+    TaskPriority? priority,
+    DateTime? dueDate,
+    List<String>? tags,
+    String? parentId,
+    String? topicId,
+  });
   Future<void> deleteTask(String taskId);
   Future<void> viewTask(String taskId);
   Future<void> listTasks();

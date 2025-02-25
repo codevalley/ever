@@ -75,9 +75,9 @@ class TaskModel {
     return {
       'id': id,
       'content': content,
-      'status': status.toString().split('.').last,
-      'priority': priority.toString().split('.').last,
-      if (dueDate != null) 'due_date': dueDate!.toIso8601String(),
+      'status': formatStatus(status),
+      'priority': formatPriority(priority),
+      if (dueDate != null) 'due_date': dueDate!.toUtc().toIso8601String(),
       'tags': tags,
       if (parentId != null) 'parent_id': parentId,
       if (topicId != null) 'topic_id': topicId,
@@ -100,6 +100,30 @@ class TaskModel {
       parentId: parentId,
       topicId: topicId,
     );
+  }
+
+  /// Format task status to string representation
+  static String formatStatus(TaskStatus status) {
+    switch (status) {
+      case TaskStatus.todo:
+        return 'todo';
+      case TaskStatus.inProgress:
+        return 'in_progress';
+      case TaskStatus.done:
+        return 'done';
+    }
+  }
+
+  /// Format task priority to string representation
+  static String formatPriority(TaskPriority priority) {
+    switch (priority) {
+      case TaskPriority.low:
+        return 'low';
+      case TaskPriority.medium:
+        return 'medium';
+      case TaskPriority.high:
+        return 'high';
+    }
   }
 
   /// Parse task status from string
