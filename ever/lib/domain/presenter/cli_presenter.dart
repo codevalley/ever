@@ -48,6 +48,7 @@ class CliPresenter implements EverPresenter {
   final GetTaskUseCase _getTaskUseCase;
 
   final _stateController = BehaviorSubject<EverState>.seeded(EverState.initial());
+  final _events = BehaviorSubject<DomainEvent>();
   final List<StreamSubscription> _subscriptions = [];
 
   CliPresenter({
@@ -81,28 +82,82 @@ class CliPresenter implements EverPresenter {
         _deleteTaskUseCase = deleteTaskUseCase,
         _listTasksUseCase = listTasksUseCase,
         _getTaskUseCase = getTaskUseCase {
-    // Subscribe to all use case events
+    // Subscribe to all use case events and merge them into a single stream
     _subscriptions.addAll([
-      _registerUseCase.events.listen(_handleUserEvents),
-      _loginUseCase.events.listen(_handleUserEvents),
-      _signOutUseCase.events.listen(_handleUserEvents),
-      _refreshTokenUseCase.events.listen(_handleTokenEvents),
-      _getCurrentUserUseCase.events.listen(_handleUserEvents),
-      _createNoteUseCase.events.listen(_handleNoteEvents),
-      _updateNoteUseCase.events.listen(_handleNoteEvents),
-      _deleteNoteUseCase.events.listen(_handleNoteEvents),
-      _listNotesUseCase.events.listen(_handleNoteEvents),
-      _getNoteUseCase.events.listen(_handleNoteEvents),
-      _createTaskUseCase.events.listen(_handleTaskEvents),
-      _updateTaskUseCase.events.listen(_handleTaskEvents),
-      _deleteTaskUseCase.events.listen(_handleTaskEvents),
-      _listTasksUseCase.events.listen(_handleTaskEvents),
-      _getTaskUseCase.events.listen(_handleTaskEvents),
+      _registerUseCase.events.listen(_events.add),
+      _loginUseCase.events.listen(_events.add),
+      _signOutUseCase.events.listen(_events.add),
+      _refreshTokenUseCase.events.listen(_events.add),
+      _getCurrentUserUseCase.events.listen(_events.add),
+      _createNoteUseCase.events.listen(_events.add),
+      _updateNoteUseCase.events.listen(_events.add),
+      _deleteNoteUseCase.events.listen(_events.add),
+      _getNoteUseCase.events.listen(_events.add),
+      _listNotesUseCase.events.listen(_events.add),
+      _createTaskUseCase.events.listen(_events.add),
+      _updateTaskUseCase.events.listen(_events.add),
+      _deleteTaskUseCase.events.listen(_events.add),
+      _listTasksUseCase.events.listen(_events.add),
+      _getTaskUseCase.events.listen(_events.add),
     ]);
+
+    // Subscribe to the merged events stream to update state
+    _subscriptions.add(_events.stream.listen((event) {
+      if (event is CurrentUserRetrieved ||
+          event is UserRegistered ||
+          event is UserLoggedOut) {
+        _handleUserEvents(event);
+      } else if (event is TokenObtained ||
+                 event is TokenRefreshed ||
+                 event is TokenExpired) {
+        _handleTokenEvents(event);
+      } else if (event is NoteCreated ||
+                 event is NoteUpdated ||
+                 event is NoteDeleted ||
+                 event is NotesRetrieved ||
+                 event is NoteRetrieved) {
+        _handleNoteEvents(event);
+      } else if (event is TaskCreated ||
+                 event is TaskUpdated ||
+                 event is TaskDeleted ||
+                 event is TasksRetrieved ||
+                 event is TaskRetrieved) {
+        _handleTaskEvents(event);
+      } else if (event is OperationInProgress ||
+                 event is OperationSuccess ||
+                 event is OperationFailure) {
+        // Handle generic operation events
+        if (event is OperationInProgress) {
+          _updateState(
+            _stateController.value.copyWith(
+              isLoading: true,
+              error: null,
+            ),
+          );
+        } else if (event is OperationSuccess) {
+          _updateState(
+            _stateController.value.copyWith(
+              isLoading: false,
+              error: null,
+            ),
+          );
+        } else if (event is OperationFailure) {
+          _updateState(
+            _stateController.value.copyWith(
+              isLoading: false,
+              error: event.error,
+            ),
+          );
+        }
+      }
+    }));
   }
 
   @override
   Stream<EverState> get state => _stateController.stream;
+
+  @override
+  Stream<DomainEvent> get events => _events.stream;
 
   void _updateState(EverState newState) {
     // Only emit state if it's different from the current state
@@ -869,6 +924,7 @@ class CliPresenter implements EverPresenter {
       await subscription.cancel();
     }
     await _stateController.close();
+    await _events.close();
   }
 
   // Cache for user secret

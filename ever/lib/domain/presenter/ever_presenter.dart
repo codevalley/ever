@@ -1,6 +1,7 @@
 import '../entities/user.dart';
 import '../entities/note.dart';
 import '../entities/task.dart';
+import '../core/events.dart';
 
 /// Abstract interface for Ever presentation logic
 ///
@@ -13,6 +14,9 @@ import '../entities/task.dart';
 abstract class EverPresenter {
   /// Stream of the current state
   Stream<EverState> get state;
+
+  /// Stream of domain events
+  Stream<DomainEvent> get events;
 
   /// Initialize the presenter
   Future<void> initialize();
