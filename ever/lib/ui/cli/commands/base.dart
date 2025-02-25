@@ -19,6 +19,9 @@ abstract class EverCommand extends Command<int> {
   
   /// State subscription for handling presenter state changes
   StreamSubscription<EverState>? _stateSubscription;
+  
+  /// Progress indicator for tracking loading state
+  Progress? _progress;
 
   EverCommand({
     required this.presenter,
@@ -34,9 +37,15 @@ abstract class EverCommand extends Command<int> {
   /// Handle state changes from the presenter
   void _handleState(EverState state) {
     if (state.isLoading) {
-      logger.progress('Processing...');
+      // Only create a new progress indicator if one doesn't exist
+      _progress ??= logger.progress('Processing...');
     } else {
-      logger.progress('').complete();
+      // Complete the progress indicator if it exists
+      if (_progress != null) {
+        _progress!.complete();
+        _progress = null;
+      }
+      
       if (state.error != null) {
         logger.err(ErrorFormatter().format(state.error!));
       } else if (state.currentUser != null) {
@@ -65,6 +74,12 @@ abstract class EverCommand extends Command<int> {
 
   /// Clean up resources
   Future<void> _cleanup() async {
+    // Complete any active progress indicator
+    if (_progress != null) {
+      _progress!.complete();
+      _progress = null;
+    }
+    
     await _stateSubscription?.cancel();
   }
 }

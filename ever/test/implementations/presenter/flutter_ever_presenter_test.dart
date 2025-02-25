@@ -569,7 +569,7 @@ void main() {
       // Arrange
       final taskId = '123';
       final content = 'Updated Task';
-      final status = 'done';
+      //final status = 'done';
 
       // Act
       await presenter.updateTask(taskId, content: content, status: TaskStatus.done);

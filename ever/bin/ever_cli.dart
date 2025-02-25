@@ -80,7 +80,7 @@ void main(List<String> args) async {
     // Update API URL if provided
     if (apiUrl != null) {
       ApiConfig.updateBaseUrl(apiUrl);
-      logger.info('Using API URL: ${ApiConfig.apiBaseUrl}');
+      //logger.info('Using API URL: ${ApiConfig.apiBaseUrl}');
     }
     
     // Set up dependency injection

@@ -63,6 +63,7 @@ dependencies:
   io: ^1.0.4          # I/O utilities
   mason_logger: ^0.2.11  # Beautiful CLI logging/progress
   ansi_styles: ^0.3.2+1  # Terminal styling
+  dart_console: ^4.1.1
 
 dev_dependencies:
   flutter_test:
