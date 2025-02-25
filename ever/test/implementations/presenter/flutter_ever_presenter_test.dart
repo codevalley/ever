@@ -550,18 +550,16 @@ void main() {
 
     test('createTask executes create task use case with correct parameters', () async {
       // Arrange
-      final title = 'Test Task';
-      final description = 'Test Description';
+      final content = 'Test Task';
 
       // Act
-      await presenter.createTask(title: title, description: description);
+      await presenter.createTask(content: content);
       await pumpEventQueue();
 
       // Assert
       verify(mockCreateTaskUseCase.execute(argThat(
         isA<CreateTaskParams>()
-          .having((p) => p.content, 'content', title)
-          .having((p) => p.tags, 'tags', [description])
+          .having((p) => p.content, 'content', content)
           .having((p) => p.status, 'status', TaskStatus.todo)
           .having((p) => p.priority, 'priority', TaskPriority.medium),
       ))).called(1);
@@ -570,18 +568,18 @@ void main() {
     test('updateTask executes update task use case with correct parameters', () async {
       // Arrange
       final taskId = '123';
-      final title = 'Updated Task';
+      final content = 'Updated Task';
       final status = 'done';
 
       // Act
-      await presenter.updateTask(taskId, title: title, status: status);
+      await presenter.updateTask(taskId, content: content, status: TaskStatus.done);
       await pumpEventQueue();
 
       // Assert
       verify(mockUpdateTaskUseCase.execute(argThat(
         isA<UpdateTaskParams>()
           .having((p) => p.taskId, 'taskId', taskId)
-          .having((p) => p.content, 'content', title)
+          .having((p) => p.content, 'content', content)
           .having((p) => p.status, 'status', TaskStatus.done),
       ))).called(1);
     });
@@ -628,7 +626,7 @@ void main() {
       final error = 'Failed to create task';
 
       // Act
-      await presenter.createTask(title: 'Test Task');
+      await presenter.createTask(content: 'Test Task');
       createTaskEventController.add(OperationInProgress('create_task'));
       await pumpEventQueue();
       createTaskEventController.add(OperationFailure('create_task', error));
