@@ -1,7 +1,7 @@
 /// Configuration for API endpoints and settings
 class ApiConfig {
   /// Base URL for the API
-  static String baseUrl = 'https://api.friday.com';
+  static String baseUrl = 'https://api.nyn.sh';
 
   /// API version prefix
   static const apiVersion = 'v1';

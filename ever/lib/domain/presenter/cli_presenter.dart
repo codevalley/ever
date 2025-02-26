@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
+import 'package:path/path.dart' as path;
 
 import 'package:rxdart/rxdart.dart';
 import '../../core/logging.dart';
@@ -174,7 +177,29 @@ class CliPresenter implements EverPresenter {
     
     if (token != null && userSecret != null) {
       // We have credentials, try to get current user
-      await getCurrentUser();
+      try {
+        await getCurrentUser();
+        
+        // If getting current user fails, try to login with cached secret
+        if (!_stateController.value.isAuthenticated && userSecret != "cached_credentials_exist") {
+          dprint('Not authenticated after getting current user, trying to login with cached secret');
+          await login(userSecret);
+        }
+      } catch (e) {
+        // If getting current user fails, try to login with cached secret
+        if (userSecret != "cached_credentials_exist") {
+          dprint('Failed to get current user, trying to login with cached secret: $e');
+          try {
+            await login(userSecret);
+          } catch (loginError) {
+            eprint('Failed to login with cached secret: $loginError');
+            _updateState(EverState.initial());
+          }
+        } else {
+          eprint('Failed to get current user and cannot login with dummy secret: $e');
+          _updateState(EverState.initial());
+        }
+      }
     } else {
       // No credentials, start in initial state
       _updateState(EverState.initial());
@@ -942,14 +967,50 @@ class CliPresenter implements EverPresenter {
 
   void _cacheUserSecret(String secret) {
     _cachedUserSecret = secret;
+    // No need to explicitly persist - the repository already handles this
+    // during the login/register process
   }
 
   void _clearCachedUserSecret() {
     _cachedUserSecret = null;
+    // No need to explicitly clear - the repository already handles this
+    // during the logout process
   }
 
   @override
   Future<String?> getCachedUserSecret() async {
-    return _cachedUserSecret;
+    // If we have it in memory, return it
+    if (_cachedUserSecret != null) {
+      return _cachedUserSecret;
+    }
+    
+    try {
+      // Try to read the user secret directly from the cache file
+      final homeDir = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
+      final cacheDir = path.join(homeDir, '.ever', 'cache');
+      final secretFile = File(path.join(cacheDir, 'userSecret.json'));
+      
+      if (await secretFile.exists()) {
+        final content = await secretFile.readAsString();
+        // The content is a JSON string, so we need to decode it
+        final userSecret = json.decode(content) as String;
+        _cachedUserSecret = userSecret;
+        return userSecret;
+      }
+      
+      // If no file exists, check if we have a token
+      final token = await _loginUseCase.getCachedToken();
+      if (token != null) {
+        // We have a token, but no user secret file
+        // This is unusual, but we'll return a dummy value to trigger auto-login
+        return "cached_credentials_exist";
+      }
+    } catch (e) {
+      // If there's an error, just return null
+      eprint('Error reading cached user secret: $e');
+      return null;
+    }
+    
+    return null;
   }
 } 

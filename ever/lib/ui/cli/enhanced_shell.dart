@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:mason_logger/mason_logger.dart' as mason_logger hide ExitCode;
 
+import '../../implementations/config/api_config.dart';
 import 'commands/base.dart';
 
 /// Enhanced shell command with a nice welcome screen
@@ -33,6 +34,9 @@ class EnhancedShellCommand extends EverCommand {
     try {
       // Display welcome message
       _displayWelcomeMessage();
+      
+      // Display login status if authenticated
+      await _displayLoginStatus();
       
       // Subscribe to state changes
       _stateSubscription = presenter.state.listen((state) {
@@ -117,6 +121,20 @@ class EnhancedShellCommand extends EverCommand {
     });
   }
 
+  /// Displays login status if user is authenticated
+  Future<void> _displayLoginStatus() async {
+    try {
+      final currentState = await presenter.state.first;
+      if (currentState.isAuthenticated && currentState.currentUser != null) {
+        final username = currentState.currentUser!.username;
+        print('$_green✓ Logged in as $username$_reset');
+        print('');
+      }
+    } catch (e) {
+      // Ignore errors when checking state
+    }
+  }
+
   /// Displays a welcome message with ASCII art and helpful information
   void _displayWelcomeMessage() {
     // Display ASCII art
@@ -130,7 +148,7 @@ $_yellow
 $_reset''');
     
     // Display API URL in a box
-    print('API URL: ${Platform.environment['EVER_API_URL'] ?? 'Default API'}');
+    print('API URL: ${ApiConfig.apiBaseUrl}');
     print('');
     
     // Display available commands in a box

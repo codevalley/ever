@@ -46,8 +46,40 @@ class CliApp {
       // Initialize presenter
       await presenter.initialize();
       
-      // If no args provided, start shell mode
-      if (args.isEmpty) {
+      // Check for cached credentials if no specific command is provided
+      if (args.isEmpty || (args.length == 2 && args[0] == '--api-url')) {
+        final cachedSecret = await presenter.getCachedUserSecret();
+        
+        if (cachedSecret != null) {
+          // Ask user if they want to auto-login
+          final autoLogin = logger.confirm(
+            '👋 Welcome back! Would you like to auto-login with your cached credentials?',
+            defaultValue: true,
+          );
+          
+          if (autoLogin) {
+            try {
+              // Instead of trying to login directly with the cached secret,
+              // run the login command which will handle the cached secret properly
+              logger.info('🔄 Auto-logging in...');
+              final loginArgs = ['login'];
+              
+              // Add API URL if provided
+              if (args.length == 2 && args[0] == '--api-url') {
+                loginArgs.addAll(args);
+              }
+              
+              // Run the login command
+              await _registry.run(loginArgs);
+              logger.success('🔐 Auto-login successful!');
+            } catch (e) {
+              logger.err('❌ Auto-login failed: ${e.toString()}');
+              logger.info('Please login manually.');
+            }
+          }
+        }
+        
+        // Start shell mode regardless of login outcome
         args = ['shell'];
       }
       
