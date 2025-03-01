@@ -48,6 +48,9 @@ class EnhancedShellCommand extends EverCommand {
           _progress?.complete();
           _progress = null;
         }
+        
+        // Don't log errors here as commands will handle their own errors
+        // This prevents duplicate error messages
       });
 
       try {
@@ -72,7 +75,7 @@ class EnhancedShellCommand extends EverCommand {
             // Parse and run command
             final result = await _runner.run(input.split(' '));
             if (result != null && result != ExitCode.success.code) {
-              logger.err('Command failed with exit code: $result');
+              // Don't log generic error here, let the command handle it
             }
           } catch (e) {
             logger.err(e.toString());

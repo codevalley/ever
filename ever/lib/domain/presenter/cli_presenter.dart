@@ -680,6 +680,11 @@ class CliPresenter implements EverPresenter {
       onError: (e) {
         if (!hasEmittedError && !noteSubject.isClosed) {
           hasEmittedError = true;
+          // Update state with error but don't emit duplicate errors
+          _updateState(_stateController.value.copyWith(
+            isLoading: false,
+            error: e.toString(),
+          ));
           noteSubject.addError(e);
         }
       },

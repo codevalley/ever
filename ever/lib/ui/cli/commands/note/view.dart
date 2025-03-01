@@ -44,13 +44,13 @@ class ViewNoteCommand extends EverCommand {
         (state) {
           if (state.error != null && !errorOccurred) {
             errorOccurred = true;
-            logger.err(state.error!);
+            logger.err('Failed to read note: ${state.error}');
           }
         },
         onError: (e) {
           if (!errorOccurred) {
             errorOccurred = true;
-            logger.err(e.toString());
+            logger.err('Failed to read note: $e');
           }
         },
       );
@@ -65,7 +65,7 @@ class ViewNoteCommand extends EverCommand {
           if (!completer.isCompleted) {
             if (!errorOccurred) {
               errorOccurred = true;
-              logger.err(e.toString());
+              logger.err('Failed to read note: $e');
             }
             completer.completeError(e);
           }
@@ -74,7 +74,7 @@ class ViewNoteCommand extends EverCommand {
           if (!completer.isCompleted && !errorOccurred) {
             errorOccurred = true;
             final error = Exception('Note not found');
-            logger.err(error.toString());
+            logger.err('Failed to read note: $error');
             completer.completeError(error);
           }
         },
@@ -99,7 +99,7 @@ class ViewNoteCommand extends EverCommand {
         await subscription.cancel();
         await stateSubscription.cancel();
         if (!errorOccurred) {
-          logger.err(e.toString());
+          logger.err('Failed to read note: $e');
         }
         return ExitCode.software.code;
       }
@@ -110,8 +110,8 @@ class ViewNoteCommand extends EverCommand {
       logger.err(e.toString());
       return ExitCode.software.code;
     } catch (e) {
-      if (!e.toString().contains('Note not found')) {
-        logger.err(e.toString());
+      if (!e.toString().contains('Note not found') && !e.toString().contains('Failed to read note')) {
+        logger.err('Failed to read note: $e');
       }
       return ExitCode.software.code;
     }
